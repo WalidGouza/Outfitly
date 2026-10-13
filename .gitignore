@@ -1,0 +1,10 @@
+.env
+.env.local
+server.env
+tunnel.env
+.venv/
+node_modules/
+dist/
+__pycache__/
+.pytest_cache/
+uploads/

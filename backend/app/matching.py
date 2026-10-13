@@ -1,0 +1,76 @@
+import colorsys
+import itertools
+
+
+def hsv(color):
+    return colorsys.rgb_to_hsv(*(int(color[i : i + 2], 16) / 255 for i in (1, 3, 5)))
+
+
+def color_score(a, b, rules):
+    h1, s1, v1 = hsv(a)
+    h2, s2, v2 = hsv(b)
+    if (
+        min(s1, s2) < rules["neutral_saturation"]
+        or min(v1, v2) < rules["neutral_value_low"]
+    ):
+        return rules["neutral_score"]
+    angle = min(abs(h1 - h2), 1 - abs(h1 - h2)) * 360
+    if angle <= rules["analogous_degrees"]:
+        return 1 - angle / rules["analogous_falloff_degrees"]
+    if abs(angle - 180) <= rules["complementary_tolerance"]:
+        return rules["complementary_score"]
+    if abs(angle - 120) <= rules["complementary_tolerance"]:
+        return rules["triadic_score"]
+    return rules["unmatched_color_score"]
+
+
+def texture_score(a, b, rules):
+    if a == b:
+        return rules["same_texture_score"]
+    return rules["texture_pairs"].get(
+        f"{a}:{b}",
+        rules["texture_pairs"].get(f"{b}:{a}", rules["unknown_texture_score"]),
+    )
+
+
+def rank(pools, semantic, rules, limit=6, anchor=None):
+    if any(not pools.get(c) for c in ("tops", "pants", "shoes")):
+        return []
+    categories = ["tops", "pants", "shoes"] + (
+        ["jackets"] if pools.get("jackets") else []
+    )
+    results = []
+    for n, combo in enumerate(itertools.product(*(pools[c] for c in categories))):
+        if n >= rules["max_combinations"]:
+            break
+        if anchor and anchor not in [x.id for x in combo]:
+            continue
+        pairs = list(itertools.combinations(combo, 2))
+        parts = {
+            "semantic": sum(semantic[x.id] for x in combo) / len(combo),
+            "color": sum(color_score(a.color, b.color, rules) for a, b in pairs)
+            / len(pairs),
+            "texture": sum(texture_score(a.texture, b.texture, rules) for a, b in pairs)
+            / len(pairs),
+        }
+        score = sum(parts[k] * rules["weights"][k] for k in parts)
+        results.append(
+            {
+                "items": list(combo),
+                "score": round(score * 100),
+                "breakdown": {k: round(v * 100) for k, v in parts.items()},
+            }
+        )
+    results.sort(key=lambda x: x["score"], reverse=True)
+    # Greedy diversity avoids returning the same base outfit with only different jackets.
+    selected = []
+    bases = set()
+    for result in results:
+        base = tuple(x.id for x in result["items"] if x.category != "jackets")
+        if base in bases:
+            continue
+        selected.append(result)
+        bases.add(base)
+        if len(selected) >= limit:
+            break
+    return selected
