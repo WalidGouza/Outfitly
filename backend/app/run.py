@@ -5,7 +5,8 @@ from .config import settings
 
 
 def runtime_options(config):
-    options = {"host": "0.0.0.0", "port": 8000, "workers": 1, "reload": config.is_dev}
+    # PORT is provided by hosts such as Render; Docker and local runs default to 8000.
+    options = {"host": "0.0.0.0", "port": config.port, "workers": 1, "reload": config.is_dev}
     if config.is_dev:
         options["reload_dirs"] = [str(Path(__file__).resolve().parent)]
     return options

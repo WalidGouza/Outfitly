@@ -1,12 +1,26 @@
 import json
 from functools import lru_cache
+from pathlib import Path
 from typing import Literal
-from pydantic import SecretStr, model_validator
+from pydantic import SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# backend/.env is found regardless of the working directory. Real environment
+# variables (Docker, Render) always take precedence over values in this file.
+ENV_FILE = Path(__file__).resolve().parent.parent / ".env"
+
+
+def parse_app_env(value):
+    """Accept dev/prod in any case, with stray whitespace or quotes; reject anything else."""
+    if isinstance(value, str):
+        value = value.strip().strip("\"'").strip().lower()
+    return value
 
 
 class Settings(BaseSettings):
-    app_env: Literal["dev", "prod"] = "dev"
+    # Required: a missing APP_ENV must never silently fall back to dev settings.
+    app_env: Literal["dev", "prod"]
+    port: int = 8000
     database_url: str
     jwt_secret: str
     frontend_origin: str = "http://localhost:5173"
@@ -16,15 +30,36 @@ class Settings(BaseSettings):
     supabase_url: str = ""
     supabase_service_role_key: SecretStr = SecretStr("")
     supabase_storage_bucket: str = "wardrobe-images"
-    embedding_model: str = "sentence-transformers/clip-ViT-B-32"
+    # Separately hosted image-embedding service (ml-service/). Empty disables uploads/generation.
+    ml_service_url: str = ""
+    ml_service_token: SecretStr = SecretStr("")
+    ml_service_timeout: float = 90
     business_rules_json: str
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore", hide_input_in_errors=True)
+    model_config = SettingsConfigDict(env_file=ENV_FILE, extra="ignore", hide_input_in_errors=True)
+
+    _normalize_app_env = field_validator("app_env", mode="before")(parse_app_env)
 
     @model_validator(mode="after")
     def environment_defaults(self):
         if self.image_storage is None:
             self.image_storage = "supabase" if self.app_env == "prod" else "local"
         self.cors_origins
+        self.ml_service_url = self.ml_service_url.strip().rstrip("/")
+        if self.ml_service_url:
+            from urllib.parse import urlsplit
+
+            url = urlsplit(self.ml_service_url)
+            if (
+                url.scheme not in {"http", "https"}
+                or not url.netloc
+                or url.query
+                or url.fragment
+                or url.username
+                or url.password
+            ):
+                raise ValueError("ML_SERVICE_URL must be an HTTP(S) URL without credentials")
+            if len(self.ml_service_token.get_secret_value()) < 32:
+                raise ValueError("ML_SERVICE_URL requires an ML_SERVICE_TOKEN of at least 32 characters")
         return self
 
     @property

@@ -1,16 +1,62 @@
+"""Client for the separately hosted ML service (ml-service/), which runs CLIP.
+
+The core API never imports PyTorch, so it fits on small hosts such as Render's
+free tier. Both sides authenticate with a shared ML_SERVICE_TOKEN.
+"""
+import math
 from functools import lru_cache
-from .config import settings
+import httpx
+
+DIMENSIONS = 512
 
 
-@lru_cache
-def model():
-    from sentence_transformers import SentenceTransformer
-
-    return SentenceTransformer(settings().embedding_model)
+class EmbeddingUnavailable(Exception):
+    pass
 
 
-def embed(value):
-    vector = model().encode(value, normalize_embeddings=True).tolist()
-    if len(vector) != 512:
-        raise ValueError("Configured model must output 512 dimensions")
-    return vector
+class EmbeddingClient:
+    def __init__(self, settings, transport=None):
+        self.url = settings.ml_service_url
+        self.token = settings.ml_service_token.get_secret_value()
+        self.timeout = settings.ml_service_timeout
+        self.transport = transport
+        # Generation queries come from a handful of fixed style prompts.
+        self.text = lru_cache(maxsize=64)(self._text)
+
+    @property
+    def configured(self):
+        return bool(self.url and self.token)
+
+    def image(self, jpeg: bytes):
+        return self._request("/embed/image", content=jpeg, headers={"Content-Type": "image/jpeg"})
+
+    def _text(self, value: str):
+        return self._request("/embed/text", json={"text": value})
+
+    def _request(self, path, headers=None, **body):
+        if not self.configured:
+            raise EmbeddingUnavailable(
+                "Image analysis is not available yet: the ML service is not configured on the backend."
+            )
+        try:
+            with httpx.Client(transport=self.transport, timeout=self.timeout, follow_redirects=False) as client:
+                response = client.post(
+                    self.url + path,
+                    headers={"Authorization": f"Bearer {self.token}", **(headers or {})},
+                    **body,
+                )
+        except httpx.HTTPError:
+            raise EmbeddingUnavailable("Cannot reach the image analysis service. Try again shortly.") from None
+        if response.status_code == 400:
+            raise ValueError("Image could not be analysed")
+        if not response.is_success:
+            # Never echo upstream bodies; they may contain internal details.
+            raise EmbeddingUnavailable(f"Image analysis service returned HTTP {response.status_code}")
+        try:
+            vector = response.json()["embedding"]
+            vector = [float(x) for x in vector]
+        except (ValueError, KeyError, TypeError):
+            raise EmbeddingUnavailable("Image analysis service returned an invalid response") from None
+        if len(vector) != DIMENSIONS or not all(math.isfinite(x) for x in vector):
+            raise EmbeddingUnavailable("Image analysis service returned an invalid embedding")
+        return vector

@@ -135,7 +135,7 @@ def test_upload_storage_failure_and_database_rollback(tmp_path, monkeypatch, fai
         def delete(self, filename):
             state["deleted"].append(filename)
     monkeypatch.setattr(api, "image_storage", Store())
-    monkeypatch.setattr(api, "embed", lambda image: [0.0] * 512)
+    monkeypatch.setattr(api.embeddings, "image", lambda jpeg: [0.0] * 512)
     app.dependency_overrides[db] = lambda: Session()
     app.dependency_overrides[user] = lambda: SimpleNamespace(id="owner")
     raw = BytesIO()

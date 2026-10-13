@@ -13,13 +13,13 @@ from fastapi.security import HTTPBearer
 from fastapi.responses import Response, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
-from sqlalchemy import create_engine, select, text
+from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from .config import settings
 from .database import make_engine
 from .models import Base, User, Wardrobe, Cloth, Outfit
-from .embeddings import embed
+from .embeddings import EmbeddingClient, EmbeddingUnavailable
 from .matching import rank
 from .storage import ImageStorage, StorageUnavailable
 from .run import api_options
@@ -31,11 +31,17 @@ passwords = PasswordHash.recommended()
 bearer = HTTPBearer()
 uploads = Path(s.upload_dir).resolve()
 image_storage = ImageStorage(s)
+embeddings = EmbeddingClient(s)
 logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
 async def lifespan(app):
+    # uvicorn configures its own logger, so this line is visible in every host's logs.
+    logging.getLogger("uvicorn.error").info(
+        "Outfitly API starting in %s mode (image storage: %s, ML service: %s)",
+        s.app_env, s.image_storage, "configured" if embeddings.configured else "not configured",
+    )
     if not image_storage.remote:
         uploads.mkdir(parents=True, exist_ok=True)
     with engine.begin() as conn:
@@ -65,6 +71,12 @@ async def storage_error(request, exc):
     return JSONResponse(status_code=503, content={"detail": str(exc)})
 
 
+@app.exception_handler(EmbeddingUnavailable)
+async def embedding_error(request, exc):
+    logger.error("Embedding failed: %s", exc)
+    return JSONResponse(status_code=503, content={"detail": str(exc)})
+
+
 @app.exception_handler(SQLAlchemyError)
 async def database_error(request, exc):
     return JSONResponse(
@@ -77,7 +89,12 @@ async def database_error(request, exc):
 
 @app.get("/live")
 def live():
-    return {"status": "ok", "service": "outfitly-api", "environment": s.app_env}
+    return {
+        "status": "ok",
+        "service": "outfitly-api",
+        "environment": s.app_env,
+        "ml_service": "configured" if embeddings.configured else "not configured",
+    }
 
 
 def db():
@@ -212,15 +229,12 @@ def upload(
         Image.DecompressionBombWarning,
     ):
         raise HTTPException(400, "Upload a valid JPG, PNG or WebP image")
-    try:
-        vector = embed(im)
-    except Exception as exc:
-        logger.exception("Image embedding failed")
-        raise HTTPException(
-            503, "Image model unavailable. Check model download and server logs."
-        ) from exc
     jpeg = BytesIO()
     im.save(jpeg, format="JPEG", quality=90)
+    try:
+        vector = embeddings.image(jpeg.getvalue())
+    except ValueError:
+        raise HTTPException(400, "Upload a valid JPG, PNG or WebP image") from None
     filename = image_storage.save(jpeg.getvalue())
     c = Cloth(
         wardrobe_id=wid,
@@ -273,10 +287,7 @@ class Generate(BaseModel):
 @app.post("/wardrobes/{wid}/generate")
 def generate(wid: str, body: Generate, u=Depends(user), session=Depends(db)):
     owned(wid, u, session)
-    try:
-        query = embed(f"A {body.style} fashion outfit with coordinated textures")
-    except Exception as exc:
-        raise HTTPException(503, "Embedding model unavailable") from exc
+    query = embeddings.text(f"A {body.style} fashion outfit with coordinated textures")
     anchor = None
     if body.anchor_id:
         anchor = session.get(Cloth, body.anchor_id)

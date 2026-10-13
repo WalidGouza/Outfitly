@@ -1,4 +1,20 @@
-# Production: Vercel frontend + PC backend + Cloudflare Tunnel
+# Production
+
+## Recommended: Render core API + Vercel frontend + Supabase
+
+The core API in `backend/` has no PyTorch dependency and fits Render's free instance. The CLIP model lives in `ml-service/` and is hosted separately (see [ml-service/README.md](ml-service/README.md)); until it is, uploads and outfit generation return 503 while accounts, wardrobes and saved outfits work.
+
+1. In Render, choose **New > Blueprint**, select this repository, and Render reads `render.yaml` (web service `outfitly-api`, root directory `backend`, `python -m app.run`, health check `/health`, `APP_ENV=prod`). Alternatively create a Python web service by hand with those same values.
+2. Enter the secret values when prompted: `DATABASE_URL` (Supabase session-pooler URI), `JWT_SECRET`, `FRONTEND_ORIGINS=https://YOUR_FRONTEND.vercel.app`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `BUSINESS_RULES_JSON`. Leave `ML_SERVICE_URL`/`ML_SERVICE_TOKEN` empty for now.
+3. Render injects `PORT`; the backend binds to it automatically. `IMAGE_STORAGE` defaults to Supabase in prod — keep it, because Render's free disk is ephemeral.
+4. Open `https://YOUR_SERVICE.onrender.com/live` and expect `"environment": "prod"` and `"ml_service": "not configured"`. The startup log line `Outfitly API starting in prod mode` confirms the mode too.
+5. In Vercel set `APP_ENV=prod` and `VITE_API_URL=https://YOUR_SERVICE.onrender.com`, then redeploy.
+
+When the ML service is hosted, set `ML_SERVICE_URL` (its HTTPS URL) and `ML_SERVICE_TOKEN` (same ≥32-character value as on the ML host) on Render. Free Render services sleep when idle, so the first request after a pause is slow; `ML_SERVICE_TIMEOUT` (default 90 s) covers a cold ML host as well.
+
+## Alternative: Docker on a PC + Cloudflare Tunnel
+
+The Compose stack runs the core API and, when the `ml` profile is enabled (`COMPOSE_PROFILES=${APP_ENV},ml` in the root .env, plus `ML_SERVICE_URL=http://ml-service:8001` and the shared `ML_SERVICE_TOKEN` in backend/.env and ml-service/.env), the ML service.
 
 Use Docker for the PC backend. It isolates Python/PyTorch dependencies, retains the downloaded CLIP model, and runs the backend and tunnel as restartable services. The frontend stays on Vercel; PostgreSQL/pgvector and private photos stay in Supabase. Docker does not reduce CLIP's memory requirement. The earlier 512 MB instance ran out of memory; peak memory for your PC has not been measured. Watch a real upload with `docker stats`.
 

@@ -33,7 +33,8 @@ def client(tmp_path, monkeypatch):
     def fake_embed(value):
         return [1.0] + [0.0] * 511
 
-    monkeypatch.setattr(main, "embed", fake_embed)
+    monkeypatch.setattr(main.embeddings, "image", fake_embed)
+    monkeypatch.setattr(main.embeddings, "text", fake_embed)
     with TestClient(main.app) as c:
         yield c
     Base.metadata.drop_all(engine)

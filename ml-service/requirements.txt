@@ -1,0 +1,8 @@
+# Install CPU-only PyTorch first (see Dockerfile) to avoid the multi-GB CUDA wheels.
+fastapi>=0.115,<1
+uvicorn[standard]>=0.30,<1
+pydantic-settings>=2.6,<3
+Pillow>=11,<13
+sentence-transformers>=3.3,<6
+pytest>=8,<10
+httpx>=0.27,<1

@@ -59,3 +59,49 @@ def test_configuration_errors_do_not_print_secrets():
                  jwt_secret="private-jwt-secret" * 3, business_rules_json="{}", frontend_origins="http://localhost:5173")
     assert "private-password" not in str(exc.value)
     assert "private-jwt-secret" not in str(exc.value)
+
+
+@pytest.mark.parametrize("raw, expected", [("prod", "prod"), (" PROD ", "prod"), ('"prod"', "prod"), ("Dev", "dev")])
+def test_app_env_is_normalized(raw, expected):
+    assert make(raw, frontend_origins="https://outfitly.vercel.app").app_env == expected
+
+
+def test_missing_app_env_does_not_default_to_dev(monkeypatch):
+    monkeypatch.delenv("APP_ENV", raising=False)
+    with pytest.raises(ValueError):
+        Settings(_env_file=None, database_url="postgresql://u:p@localhost/db", jwt_secret="x" * 40,
+                 business_rules_json=os.environ["BUSINESS_RULES_JSON"])
+
+
+def test_env_file_is_found_from_any_working_directory(tmp_path, monkeypatch):
+    from app import config
+    env = tmp_path / ".env"
+    env.write_text("APP_ENV=prod\nFRONTEND_ORIGINS=https://outfitly.vercel.app\n")
+    monkeypatch.setattr(config, "ENV_FILE", env)
+    monkeypatch.delenv("APP_ENV", raising=False)
+    monkeypatch.delenv("FRONTEND_ORIGINS", raising=False)
+    monkeypatch.chdir(tmp_path.parent)
+    loaded = Settings(_env_file=config.ENV_FILE)
+    assert loaded.app_env == "prod" and loaded.image_storage == "supabase"
+    assert config.Settings.model_config["env_file"].is_absolute()
+
+
+def test_real_environment_overrides_env_file(tmp_path, monkeypatch):
+    env = tmp_path / ".env"
+    env.write_text("APP_ENV=dev\n")
+    monkeypatch.setenv("APP_ENV", "prod")
+    monkeypatch.setenv("FRONTEND_ORIGINS", "https://outfitly.vercel.app")
+    assert Settings(_env_file=env).app_env == "prod"
+
+
+def test_port_comes_from_environment(monkeypatch):
+    monkeypatch.setenv("PORT", "10000")
+    assert runtime_options(make("prod"))["port"] == 10000
+
+
+def test_ml_service_url_requires_strong_token():
+    assert make("prod", ml_service_url="https://ml.example.com/", ml_service_token="t" * 40).ml_service_url == "https://ml.example.com"
+    with pytest.raises(ValueError):
+        make("prod", ml_service_url="https://ml.example.com", ml_service_token="short")
+    with pytest.raises(ValueError):
+        make("prod", ml_service_url="https://user:pw@ml.example.com", ml_service_token="t" * 40)

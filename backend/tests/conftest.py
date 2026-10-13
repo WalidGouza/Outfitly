@@ -8,5 +8,8 @@ os.environ["JWT_SECRET"] = "a-test-only-secret-not-for-production-123456"
 os.environ["BUSINESS_RULES_JSON"] = (
     Path(".env.example").read_text().split("BUSINESS_RULES_JSON=", 1)[1].strip()
 )
+# Pin the mode so a developer's backend/.env (e.g. APP_ENV=prod) cannot leak into tests.
+os.environ["APP_ENV"] = "dev"
+os.environ["ML_SERVICE_URL"] = ""
 os.environ["FRONTEND_ORIGIN"] = "http://localhost:5173"
 os.environ["FRONTEND_ORIGINS"] = ""

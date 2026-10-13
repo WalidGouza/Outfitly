@@ -1,0 +1,35 @@
+# Render Blueprint for the core API only (no PyTorch, fits the free instance).
+# The ML service (ml-service/) is hosted separately; set ML_SERVICE_URL/TOKEN once it exists.
+services:
+  - type: web
+    name: outfitly-api
+    runtime: python
+    plan: free
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: python -m app.run
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.8
+      - key: APP_ENV
+        value: prod
+      # Secrets and per-deployment values are entered in the Render dashboard.
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: FRONTEND_ORIGINS
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: SUPABASE_STORAGE_BUCKET
+        value: wardrobe-images
+      - key: BUSINESS_RULES_JSON
+        sync: false
+      - key: ML_SERVICE_URL
+        sync: false
+      - key: ML_SERVICE_TOKEN
+        sync: false
