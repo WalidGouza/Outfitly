@@ -1,83 +1,47 @@
-# Preserve existing backend upload/model volumes when upgrading.
+# Local development stack. Production runs on Render (render.yaml) + Vercel + Supabase.
+# The legacy project name preserves existing upload/model volumes.
 name: outfitly-server
 
 services:
-  backend: &backend
-    profiles: [prod]
+  backend:
     build: ./backend
-    restart: unless-stopped
     init: true
     env_file: [./backend/.env]
     environment:
-      APP_ENV: ${APP_ENV:?Set APP_ENV=dev or prod in the root .env}
+      APP_ENV: ${APP_ENV:-dev}
       UPLOAD_DIR: /app/uploads
+    ports: ["127.0.0.1:8000:8000"]
     volumes:
       - backend_uploads:/app/uploads
+      # Source mounted read-only; Uvicorn reloads on change in dev.
+      - ./backend/app:/app/app:ro
     read_only: true
     tmpfs: [/tmp]
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
-    healthcheck:
-      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5).read()"]
-      interval: 30s
-      timeout: 10s
-      start_period: 30s
-      retries: 3
-    stop_grace_period: 60s
-    logging:
-      driver: json-file
-      options: {max-size: "10m", max-file: "3"}
 
-  backend-dev:
-    <<: *backend
-    profiles: [dev]
-    ports: ["127.0.0.1:8000:8000"]
-    volumes:
-      - backend_uploads:/app/uploads
-      - ./backend/app:/app/app:ro
-
-  # Opt-in: add ",ml" to COMPOSE_PROFILES in the root .env and set
-  # ML_SERVICE_URL=http://ml-service:8001 plus the shared ML_SERVICE_TOKEN in backend/.env.
+  # Opt-in: COMPOSE_PROFILES=ml in the root .env, plus ML_SERVICE_URL=http://ml-service:8001
+  # and the shared ML_SERVICE_TOKEN in backend/.env and ml-service/.env.
   # Without it the core API still runs; uploads and outfit generation return 503.
   ml-service:
     profiles: [ml]
     build: ./ml-service
-    restart: unless-stopped
     init: true
     env_file: [./ml-service/.env]
     environment:
-      APP_ENV: ${APP_ENV:?Set APP_ENV=dev or prod in the root .env}
+      APP_ENV: ${APP_ENV:-dev}
       HF_HOME: /app/cache/huggingface
       TOKENIZERS_PARALLELISM: "false"
       OMP_NUM_THREADS: "2"
       MKL_NUM_THREADS: "2"
+    ports: ["127.0.0.1:8001:8001"]
     volumes:
       - model_cache:/app/cache
+      - ./ml-service/app:/app/app:ro
     read_only: true
     tmpfs: [/tmp]
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
-    healthcheck:
-      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/health', timeout=5).read()"]
-      interval: 30s
-      timeout: 10s
-      start_period: 120s
-      retries: 3
-    logging:
-      driver: json-file
-      options: {max-size: "10m", max-file: "3"}
-
-  cloudflared:
-    profiles: [prod]
-    image: cloudflare/cloudflared:latest
-    restart: unless-stopped
-    command: [tunnel, --no-autoupdate, run]
-    env_file: [./tunnel.env]
-    depends_on:
-      backend: {condition: service_healthy}
-    logging:
-      driver: json-file
-      options: {max-size: "10m", max-file: "3"}
 
 volumes:
   backend_uploads:

@@ -1,7 +1,7 @@
 export function resolveApiUrl(raw?: string, appEnv: "dev" | "prod" = "dev"): string {
   const value = (raw?.trim() || "/api").replace(/\/+$/, "");
   if (value.startsWith("/")) {
-    if (appEnv === "prod") throw new Error("APP_ENV=prod requires VITE_API_URL set to the public HTTPS Cloudflare Tunnel API URL.");
+    if (appEnv === "prod") throw new Error("APP_ENV=prod requires VITE_API_URL set to the public HTTPS API URL (e.g. your Render service).");
     return value;
   }
   let url: URL;

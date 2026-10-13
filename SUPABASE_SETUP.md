@@ -1,8 +1,8 @@
 # Supabase setup and account request troubleshooting
 
-Outfitly uses Supabase as a PostgreSQL database. Registration and login still go through the separately running Python API. This app uses its own `public.users` table and JWT authentication, not Supabase Auth. Database-only setup needs no Supabase JavaScript client or API key. Production photo storage on the PC backend additionally uses a private Supabase Storage bucket and a backend-only service_role key; see [DEPLOYMENT.md](DEPLOYMENT.md).
+Outfitly uses Supabase as a PostgreSQL database. Registration and login still go through the separately running Python API. This app uses its own `public.users` table and JWT authentication, not Supabase Auth. Database-only setup needs no Supabase JavaScript client or API key. Production photo storage additionally uses a private Supabase Storage bucket and a backend-only service_role key; see [DEPLOYMENT.md](DEPLOYMENT.md).
 
-For the recommended Docker deployment, use [DEPLOYMENT.md](DEPLOYMENT.md). The native Python diagnostics below are optional.
+This page covers local setup and connection troubleshooting. On Render, enter the same values as environment variables instead of using backend/.env.
 
 ## Configure the backend
 

@@ -1,28 +1,37 @@
-# Development mode
+# Local development
 
-Install Docker with Compose v2 and Node 22.18 or newer. Dev uses the same database and business-rule settings you supply; APP_ENV does not provision a database or create secrets.
+Needs Node 22.18+ and either Docker with Compose v2 or Python 3.12+. Dev uses the database and business-rule settings you supply; APP_ENV does not provision a database or create secrets.
 
-Create root .env, backend/.env, and tunnel.env from their .example templates. Keep tunnel.env's placeholder in dev; no connector starts. In the root .env:
+## Backend
 
-```dotenv
-APP_ENV=dev
-COMPOSE_PROFILES=${APP_ENV}
-```
+Create `backend/.env` from `backend/.env.example` (or run `python setup_env.py` from `backend/`, which also generates a JWT secret). Set `APP_ENV=dev`, `DATABASE_URL` to your Supabase session-pooler URI, and `FRONTEND_ORIGINS=http://localhost:5173`. Keep `BUSINESS_RULES_JSON` from the example or your existing rules. In dev, new photos are stored in the local `uploads/` folder; keep the Supabase credentials if you need to read existing remote photos.
 
-Set backend DATABASE_URL to your Supabase session-pooler URI and JWT_SECRET to a strong value. Keep BUSINESS_RULES_JSON from the example or your existing rules. Set FRONTEND_ORIGINS=http://localhost:5173. Localhost and 127.0.0.1 are aliases in dev. New photos default to persistent local Docker storage in dev; keep Supabase credentials if reading existing remote photos.
-
-The backend runs without the ML service; uploads and outfit generation then return 503. To run CLIP locally, create ml-service/.env from its template with the same `ML_SERVICE_TOKEN` as backend/.env, set `ML_SERVICE_URL=http://ml-service:8001` in backend/.env (or `http://127.0.0.1:8001` for a native run), and use `COMPOSE_PROFILES=${APP_ENV},ml` in the root .env.
-
-Start the backend:
+With Docker, create the root `.env` from `.env.example` and run:
 
 ```bash
 docker compose up -d --build
-docker compose logs -f backend-dev
 ```
 
-Open http://localhost:8000/live and expect environment dev. The backend source folder is mounted read-only into the container; changing source files triggers Uvicorn reload. API documentation is available at http://localhost:8000/docs.
+Without Docker, from `backend/` in a virtual environment:
 
-In another terminal:
+```bash
+pip install -r requirements.txt
+python -m app.run
+```
+
+Open http://localhost:8000/live and expect `"environment": "dev"`. API docs are at http://localhost:8000/docs, and Uvicorn reloads on source changes. `python diagnose.py` from `backend/` checks configuration and the database connection without printing secrets.
+
+## ML service (optional)
+
+The backend runs without it; uploads and outfit generation then return 503. To run CLIP locally:
+
+1. Create `ml-service/.env` from its template and set the same `ML_SERVICE_TOKEN` in `backend/.env`.
+2. In `backend/.env` set `ML_SERVICE_URL=http://ml-service:8001` (Docker) or `http://127.0.0.1:8001` (native).
+3. Docker: uncomment `COMPOSE_PROFILES=ml` in the root `.env` and rerun `docker compose up -d --build`. Native: see [ml-service/README.md](ml-service/README.md).
+
+The first upload downloads the CLIP model (~600 MB).
+
+## Frontend
 
 ```bash
 cd frontend
@@ -31,20 +40,8 @@ npm ci
 npm run dev
 ```
 
-The frontend .env uses APP_ENV=dev, VITE_API_URL=/api, and API_PROXY_TARGET=http://127.0.0.1:8000. Open http://localhost:5173. Vite proxies /api to the backend, removing /api before forwarding. Production builds require APP_ENV=prod and an explicit public HTTPS VITE_API_URL.
+Open http://localhost:5173. Vite proxies `/api` to `API_PROXY_TARGET` (http://127.0.0.1:8000), removing the `/api` prefix. Restart Vite after `.env` changes.
 
-For backend source checks outside Docker, install backend/requirements.txt in a Python 3.12+ virtual environment. `python -m app.run` reads backend/.env from any working directory; APP_ENV is required and real environment variables override the file. Python tests for backend/ and ml-service/ do not need PyTorch. Docker remains the recommended hosting method.
+## Integration tests
 
-The optional compose.devdb.yaml is retained for local PostgreSQL integration tests and native development. It runs the legacy local database on loopback; it is not part of the production stack. A Docker backend cannot use localhost to address a separate host database, so use the documented Supabase connection for the recommended stack.
-
-| Setting | dev | prod |
-|---|---|---|
-| API docs/debug | Enabled | Disabled |
-| Uvicorn | One worker, reload | One worker, no reload |
-| Default image storage | Persistent local volume | Private Supabase Storage |
-| CORS | Explicit HTTP/HTTPS origins, localhost aliases | Explicit HTTPS origins, localhost rejected |
-| Frontend API default | /api Vite proxy | Public HTTPS URL required |
-| Compose services | backend-dev | backend + cloudflared |
-| Host API port | 127.0.0.1:8000 | None published |
-
-To change modes, run docker compose down before editing the root APP_ENV, update origins as required, and run docker compose up -d --build. Restart Vite after local .env changes. Redeploy Vercel after production frontend env changes.
+`compose.devdb.yaml` starts a local pgvector PostgreSQL on 127.0.0.1:5432 (`docker compose -f compose.devdb.yaml up -d`). Create a database whose name ends in `_test` and set `TEST_DATABASE_URL` to it before running `python -m pytest tests -q` from `backend/`; the integration tests drop and recreate their tables.
