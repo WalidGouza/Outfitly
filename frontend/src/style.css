@@ -1,44 +1,66 @@
-@import url("https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;450;500;550;600;650;700&display=swap");
+/* Neckline O identity: Wardrobe Ink #1E221D, Collar Coral #E8644A, Linen #F6F2EA.
+   Coral is a pocket square, not a suit: the logo, the selected piece, saved state and
+   alerts only. Body copy never uses coral on linen (3.0:1). */
 :root {
-  font-family: "DM Sans", system-ui, sans-serif;
+  font-family: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-optical-sizing: auto;
+  font-feature-settings: "cv11", "ss03";
   font-synthesis: none;
   font-size: 14px;
   line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
   color-scheme: light;
-  --page: #f9f7f3;
-  --surface: #fff;
-  --sidebar: #f0eee9;
-  --soft: #efede6;
-  --board: #e7e1d5;
-  --text: #292b27;
-  --muted: #777870;
-  --faint: #9a9a90;
-  --border: #e4e1d9;
-  --accent: #ef7259;
-  --accent-soft: #fff0eb;
-  --ink: #282b26;
-  --on-ink: #fffaf4;
-  --shadow: 0 6px 22px #27231c07;
+  --brand-ink: #1e221d;
+  --brand-coral: #e8644a;
+  --brand-linen: #f6f2ea;
+  --page: var(--brand-linen);
+  --surface: #ffffff;
+  --sidebar: #efeae0;
+  --soft: #ede7dc;
+  --board: #e4ddd0;
+  --text: var(--brand-ink);
+  --muted: #62665e;
+  --faint: #7b7e75;
+  --border: #e2dbcf;
+  --accent: var(--brand-coral);
+  --accent-soft: #fbe7e1;
+  --ink: var(--brand-ink);
+  --on-ink: var(--brand-linen);
+  --logo-ink: var(--brand-ink);
+  --focus: var(--brand-ink);
+  --shadow: 0 1px 2px #1e221d0a, 0 8px 24px #1e221d0d;
+  --radius: 14px;
   --ease: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+  --header-material: color-mix(in srgb, var(--page) 78%, transparent);
   color: var(--text);
   background: var(--page);
 }
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --page: #171917;
-  --surface: #222522;
-  --sidebar: #1c1f1b;
-  --soft: #2b2e29;
-  --board: #383b31;
-  --text: #f2efe6;
-  --muted: #b3b4a8;
-  --faint: #93978a;
-  --border: #393d34;
-  --accent: #f28c73;
-  --accent-soft: #3e2b24;
-  --ink: #e5e8d9;
-  --on-ink: #21251c;
-  --shadow: 0 6px 22px #0002;
+  --page: #171a16;
+  --surface: #22261f;
+  --sidebar: #1b1e19;
+  --soft: #2a2e27;
+  --board: #343930;
+  --text: var(--brand-linen);
+  --muted: #aeb1a6;
+  --faint: #8b8f84;
+  --border: #32372f;
+  --accent: var(--brand-coral);
+  --accent-soft: #3a2620;
+  --ink: var(--brand-linen);
+  --on-ink: var(--brand-ink);
+  /* Reversed logo: linen ring and wordmark, coral collar unchanged. */
+  --logo-ink: var(--brand-linen);
+  --focus: var(--brand-linen);
+  --shadow: 0 1px 2px #0003, 0 10px 28px #0004;
+}
+.logo-ink {
+  fill: var(--logo-ink);
+}
+.logo-coral {
+  fill: var(--brand-coral);
 }
 * {
   box-sizing: border-box;
@@ -89,7 +111,7 @@ button:focus-visible,
 a:focus-visible,
 input:focus-visible,
 select:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--focus);
   outline-offset: 4px;
 }
 svg {
@@ -113,32 +135,20 @@ svg {
 .brand {
   display: flex;
   align-items: center;
-  font-size: 30px;
-  font-weight: 600;
-  letter-spacing: -1.8px;
-  gap: 10px;
-  padding: 0 12px;
+  /* Clear space: the ring thickness on every side. */
+  padding: 6px 12px;
 }
-.brandmark {
-  height: 34px;
-  width: 34px;
-  border-radius: 11px;
-  background: var(--text);
-  color: var(--page);
-  display: grid;
-  place-items: center;
-  font:
-    italic 32px Georgia,
-    serif;
-  letter-spacing: 0;
+.brand .logo {
+  height: 30px;
+  width: auto;
 }
-.brand-dot {
-  color: var(--accent);
-  margin-left: -9px;
+.mobile-logo {
+  display: none;
 }
 .nav-label {
-  font-size: 8px;
-  letter-spacing: 1.6px;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-wrap: balance;
   color: var(--faint);
   margin: 29px 12px 18px;
 }
@@ -153,7 +163,7 @@ svg {
   text-align: left;
   color: var(--muted);
   margin: 4px 0;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 500;
 }
 .nav-item > * {
@@ -164,7 +174,7 @@ svg {
   color: var(--text);
 }
 .nav-item.selected > svg {
-  color: var(--accent);
+  color: var(--text);
 }
 .nav-item .nav-indicator {
   position: absolute;
@@ -176,7 +186,7 @@ svg {
   z-index: 0;
 }
 .count {
-  font-size: 10px;
+  font-size: 12px;
   margin-left: auto;
   background: var(--soft);
   padding: 1px 7px;
@@ -184,8 +194,8 @@ svg {
 }
 .wardrobe-label {
   margin: 31px 11px 13px;
-  font-size: 9px;
-  letter-spacing: 1.6px;
+  font-size: 11px;
+  letter-spacing: 0.08em;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -205,7 +215,7 @@ svg {
   text-align: left;
   padding: 12px;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 13px;
   border-radius: 7px;
 }
 .wardrobe-nav.current {
@@ -213,7 +223,7 @@ svg {
 }
 .wardrobe-nav > svg {
   margin-left: auto;
-  color: var(--accent);
+  color: var(--text);
 }
 .tiny-square {
   width: 7px;
@@ -222,8 +232,8 @@ svg {
   border-radius: 2px;
 }
 .current .tiny-square {
-  background: var(--accent);
-  border-color: var(--accent);
+  background: var(--text);
+  border-color: var(--text);
 }
 .side-tip {
   margin-top: auto;
@@ -234,18 +244,18 @@ svg {
   border: 1px solid var(--border);
 }
 .tip-icon {
-  color: var(--accent);
+  color: var(--text);
   margin-bottom: 13px;
 }
 .side-tip h3 {
-  font:
-    22px/1.25 Georgia,
-    serif;
-  letter-spacing: -0.5px;
+  font-size: 17px;
+  line-height: 1.3;
+  font-weight: 600;
+  letter-spacing: -0.015em;
 }
 .side-tip p {
   color: var(--muted);
-  font-size: 10px;
+  font-size: 12px;
   line-height: 1.7;
   margin-top: 12px;
 }
@@ -256,7 +266,7 @@ svg {
   text-align: left;
   border-top: 1px solid var(--border);
   padding: 18px 3px 0;
-  font-size: 11px;
+  font-size: 13px;
 }
 .profile > svg {
   margin-left: auto;
@@ -265,7 +275,7 @@ svg {
 .profile small {
   display: block;
   color: var(--muted);
-  font-size: 9px;
+  font-size: 12px;
   margin-top: 3px;
 }
 .avatar {
@@ -275,9 +285,8 @@ svg {
   display: grid;
   place-items: center;
   border-radius: 50%;
-  font:
-    15px Georgia,
-    serif;
+  font-size: 15px;
+  font-weight: 600;
 }
 .mini-avatar {
   width: 28px;
@@ -286,9 +295,8 @@ svg {
   display: grid;
   place-items: center;
   border-radius: 50%;
-  font:
-    14px Georgia,
-    serif;
+  font-size: 14px;
+  font-weight: 600;
 }
 main {
   flex: 1;
@@ -302,17 +310,19 @@ header {
   justify-content: space-between;
   gap: 20px;
   padding: 0 44px;
-  border-bottom: 1px solid var(--border);
-  background: var(--page);
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  background: var(--header-material);
+  -webkit-backdrop-filter: blur(18px) saturate(160%);
+  backdrop-filter: blur(18px) saturate(160%);
   position: sticky;
   top: 0;
   z-index: 3;
 }
 .breadcrumb {
-  font-size: 10px;
+  font-size: 12px;
   color: var(--muted);
 }
-.breadcrumb > span {
+.crumb-sep {
   margin: 0 13px;
   color: var(--faint);
 }
@@ -320,7 +330,7 @@ header {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 9px;
+  font-size: 12px;
   color: var(--muted);
 }
 .icon-button {
@@ -328,9 +338,9 @@ header {
   margin-left: 10px;
 }
 .status-dot {
-  width: 5px;
-  height: 5px;
-  background: var(--accent);
+  width: 6px;
+  height: 6px;
+  background: #5a8f6a;
   border-radius: 50%;
 }
 .theme-picker {
@@ -346,7 +356,7 @@ header {
   padding: 5px;
   border: 0;
   background: none;
-  font-size: 10px;
+  font-size: 12px;
   color: var(--text);
 }
 .mobile-menu {
@@ -365,26 +375,24 @@ header {
   margin-bottom: 29px;
 }
 .eyebrow {
-  font-size: 9px;
+  font-size: 12px;
   letter-spacing: 1.8px;
   font-weight: 500;
   color: var(--muted);
   margin-bottom: 17px;
 }
 h1 {
-  font-size: clamp(38px, 4.2vw, 61px);
-  letter-spacing: -2.5px;
-  font-weight: 450;
-  line-height: 1.08;
+  font-size: clamp(36px, 4vw, 56px);
+  letter-spacing: -0.035em;
+  font-weight: 600;
+  line-height: 1.06;
 }
 h1 em {
-  font-family: Georgia, serif;
-  font-weight: 400;
-  letter-spacing: -2px;
-  color: var(--text);
+  font-style: normal;
+  color: var(--muted);
 }
 .page-heading p {
-  font-size: 12px;
+  font-size: 14px;
   color: var(--muted);
   margin-top: 17px;
   line-height: 1.7;
@@ -396,8 +404,8 @@ h1 em {
   gap: 10px;
   min-height: 45px;
   padding: 12px 18px;
-  border-radius: 9px;
-  font-size: 11px;
+  border-radius: 11px;
+  font-size: 13px;
   font-weight: 550;
   white-space: nowrap;
 }
@@ -411,7 +419,7 @@ h1 em {
   color: var(--on-ink);
 }
 .button.primary > svg:first-child {
-  color: var(--accent);
+  color: var(--on-ink);
 }
 .workspace-strip {
   display: flex;
@@ -435,7 +443,7 @@ h1 em {
   padding: 0 20px 0 0;
   background: none;
   border: 0;
-  font-size: 11px;
+  font-size: 13px;
   max-width: 220px;
   font-weight: 500;
   color: var(--text);
@@ -443,7 +451,7 @@ h1 em {
 .workspace-stats {
   display: flex;
   gap: 22px;
-  font-size: 10px;
+  font-size: 12px;
   color: var(--muted);
 }
 .workspace-stats strong {
@@ -455,7 +463,7 @@ h1 em {
   display: grid;
   grid-template-columns: 43% 57%;
   border: 1px solid var(--border);
-  border-radius: 16px;
+  border-radius: 20px;
   background: var(--surface);
   overflow: hidden;
   box-shadow: var(--shadow);
@@ -475,7 +483,7 @@ h1 em {
   display: flex;
   align-items: center;
   gap: 7px;
-  font-size: 8px;
+  font-size: 11px;
   letter-spacing: 1.6px;
   font-weight: 550;
   color: var(--muted);
@@ -489,16 +497,16 @@ h1 em {
 .studio-intro h2 {
   font-size: 26px;
   line-height: 1.16;
-  letter-spacing: -0.8px;
-  font-weight: 450;
+  letter-spacing: -0.025em;
+  font-weight: 600;
   margin: 15px 0 14px;
 }
 .studio-intro h2 em {
-  font-family: Georgia, serif;
-  font-weight: 400;
+  font-style: normal;
+  color: var(--muted);
 }
 .studio-intro > p {
-  font-size: 9px;
+  font-size: 12px;
   color: var(--muted);
   margin-top: 15px;
 }
@@ -562,19 +570,19 @@ h1 em {
   background: var(--surface);
   padding: 6px 9px;
   border-radius: 5px;
-  font-size: 7px;
+  font-size: 10px;
   letter-spacing: 1px;
   box-shadow: 0 3px 12px #0000000a;
 }
 .board-label svg {
-  color: var(--accent);
+  color: var(--text);
 }
 .board-empty {
   display: grid;
   place-items: center;
   gap: 10px;
   padding: 70px 10px;
-  font-size: 11px;
+  font-size: 13px;
   color: var(--muted);
 }
 .studio-controls {
@@ -590,21 +598,21 @@ h1 em {
 }
 .control-header h3 {
   font-size: 21px;
-  font-weight: 450;
-  letter-spacing: -0.6px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
 }
 .control-header > span {
-  font-size: 7px;
+  font-size: 10px;
   letter-spacing: 1px;
   color: var(--faint);
 }
 .controls-description {
-  font-size: 11px;
+  font-size: 13px;
   color: var(--muted);
   margin: 8px 0 27px;
 }
 .field-caption {
-  font-size: 8px;
+  font-size: 11px;
   color: var(--muted);
   letter-spacing: 1.4px;
   margin-bottom: 10px;
@@ -629,7 +637,7 @@ h1 em {
   border: 1px solid var(--border);
   border-radius: 7px;
   padding: 10px 12px;
-  font-size: 10px;
+  font-size: 12px;
   color: var(--muted);
   background: var(--surface);
   min-height: 37px;
@@ -655,7 +663,7 @@ label {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  font-size: 10px;
+  font-size: 12px;
   color: var(--muted);
 }
 select,
@@ -667,7 +675,7 @@ input:not([type="checkbox"]) {
   border-radius: 7px;
   background: var(--page);
   color: var(--text);
-  font-size: 11px;
+  font-size: 13px;
   min-height: 42px;
 }
 select {
@@ -693,7 +701,7 @@ input[type="color"] {
   gap: 9px;
   align-items: center;
   cursor: pointer;
-  font-size: 10px;
+  font-size: 12px;
   white-space: nowrap;
 }
 .toggle-label input {
@@ -709,6 +717,7 @@ input[type="color"] {
   background: var(--board);
   position: relative;
   flex-shrink: 0;
+  transition: background-color 150ms ease;
 }
 .toggle:after {
   content: "";
@@ -722,14 +731,14 @@ input[type="color"] {
   transition: transform 150ms var(--ease);
 }
 input:checked + .toggle {
-  background: var(--accent);
+  background: var(--ink);
 }
 input:checked + .toggle:after {
   transform: translateX(12px);
-  background: #fff;
+  background: var(--on-ink);
 }
 input:focus-visible + .toggle {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--focus);
   outline-offset: 4px;
 }
 .wardrobe-section,
@@ -746,13 +755,13 @@ input:focus-visible + .toggle {
 }
 .section-heading h2 {
   font-size: 21px;
-  font-weight: 450;
-  letter-spacing: -0.6px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
 }
 .section-heading h2 span {
   display: inline-block;
   vertical-align: middle;
-  font-size: 9px;
+  font-size: 12px;
   letter-spacing: 0;
   color: var(--muted);
   background: var(--soft);
@@ -763,7 +772,7 @@ input:focus-visible + .toggle {
   font-weight: 400;
 }
 .section-heading p {
-  font-size: 10px;
+  font-size: 12px;
   color: var(--muted);
   margin-top: 5px;
 }
@@ -771,12 +780,12 @@ input:focus-visible + .toggle {
   display: flex;
   align-items: center;
   gap: 7px;
-  font-size: 10px;
+  font-size: 12px;
   color: var(--text);
   padding: 7px 0;
 }
 .text-button svg {
-  color: var(--accent);
+  color: var(--text);
 }
 .filter-bar {
   display: flex;
@@ -795,7 +804,7 @@ input:focus-visible + .toggle {
   padding: 8px 12px;
   border-radius: 6px;
   color: var(--muted);
-  font-size: 10px;
+  font-size: 12px;
 }
 .category-tabs button.active {
   color: var(--on-ink);
@@ -805,7 +814,7 @@ input:focus-visible + .toggle {
   align-items: center;
   gap: 7px;
   color: var(--faint);
-  font-size: 9px;
+  font-size: 12px;
 }
 .clothes-grid {
   display: grid;
@@ -836,7 +845,8 @@ input:focus-visible + .toggle {
   opacity: 1;
 }
 .remove-piece:hover {
-  color: var(--accent);
+  color: var(--text);
+  border-color: var(--faint);
 }
 /* Touch screens have no hover, so the button stays visible. */
 @media (hover: none) {
@@ -845,15 +855,17 @@ input:focus-visible + .toggle {
   }
 }
 .button.danger {
-  background: var(--accent);
-  border-color: var(--accent);
+  background: var(--brand-coral);
+  border-color: var(--brand-coral);
+  /* Ink on coral is 4.9:1; white on coral would be 3.3:1. */
+  color: var(--brand-ink);
 }
 .cloth-card {
   padding: 0;
   text-align: left;
   border: 1px solid var(--border);
   background: var(--surface);
-  border-radius: 11px;
+  border-radius: var(--radius);
   overflow: hidden;
 }
 .cloth-art {
@@ -883,7 +895,7 @@ input:focus-visible + .toggle {
   padding: 15px 14px;
 }
 .cloth-info h3 {
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 500;
 }
 .cloth-info > div {
@@ -891,7 +903,7 @@ input:focus-visible + .toggle {
   align-items: center;
   justify-content: space-between;
   gap: 5px;
-  font-size: 9px;
+  font-size: 12px;
   color: var(--muted);
   margin-top: 6px;
 }
@@ -921,7 +933,7 @@ input:focus-visible + .toggle {
 }
 .cloth-card.anchored .cloth-hover {
   background: var(--accent);
-  color: #fff;
+  color: var(--brand-ink);
   border-color: var(--accent);
 }
 .add-card {
@@ -930,7 +942,7 @@ input:focus-visible + .toggle {
   align-items: center;
   justify-content: center;
   border: 1px dashed var(--faint);
-  border-radius: 11px;
+  border-radius: var(--radius);
   min-height: 220px;
   color: var(--muted);
 }
@@ -941,16 +953,16 @@ input:focus-visible + .toggle {
   height: 42px;
   border-radius: 50%;
   background: var(--soft);
-  color: var(--accent);
+  color: var(--text);
   margin-bottom: 18px;
 }
 .add-card h3 {
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 450;
   color: var(--text);
 }
 .add-card p {
-  font-size: 10px;
+  font-size: 12px;
   margin-top: 6px;
 }
 .look-grid {
@@ -961,7 +973,7 @@ input:focus-visible + .toggle {
 .look-card {
   border: 1px solid var(--border);
   background: var(--surface);
-  border-radius: 14px;
+  border-radius: 18px;
   overflow: hidden;
   box-shadow: var(--shadow);
 }
@@ -996,17 +1008,17 @@ input:focus-visible + .toggle {
 }
 .look-info h3 {
   font-size: 17px;
-  font-weight: 450;
-  letter-spacing: -0.3px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
   margin-top: 7px;
 }
 .look-info p {
-  font-size: 9px;
+  font-size: 12px;
   color: var(--muted);
   margin-top: 6px;
 }
 .look-names {
-  font-size: 9px;
+  font-size: 12px;
   color: var(--muted);
   padding: 5px 21px 21px;
   line-height: 1.8;
@@ -1022,8 +1034,8 @@ input:focus-visible + .toggle {
   color: var(--text);
 }
 .save-button.is-saved {
-  background: var(--accent-soft);
-  color: var(--accent);
+  background: var(--accent);
+  color: var(--brand-ink);
   border-color: var(--accent);
 }
 .empty {
@@ -1034,17 +1046,16 @@ input:focus-visible + .toggle {
   background: var(--surface);
 }
 .empty > svg {
-  color: var(--accent);
+  color: var(--muted);
 }
 .empty h2 {
-  font:
-    29px Georgia,
-    serif;
+  font-size: 29px;
+  font-weight: 600;
   margin: 20px 0 13px;
   letter-spacing: -0.6px;
 }
 .empty p {
-  font-size: 12px;
+  font-size: 14px;
   color: var(--muted);
   margin-bottom: 24px;
 }
@@ -1058,7 +1069,7 @@ input:focus-visible + .toggle {
   border: 1px solid var(--accent);
   border-radius: 9px;
   padding: 14px;
-  font-size: 12px;
+  font-size: 14px;
   line-height: 1.6;
   margin-bottom: 20px;
 }
@@ -1092,7 +1103,7 @@ footer {
   align-items: center;
   justify-content: space-between;
   gap: 20px;
-  font-size: 9px;
+  font-size: 12px;
   color: var(--faint);
 }
 .footer-spark {
@@ -1100,8 +1111,14 @@ footer {
   align-items: center;
   gap: 7px;
 }
-.footer-spark svg {
-  color: var(--accent);
+.footer-mark {
+  width: 16px;
+  height: 16px;
+}
+.dialog-mark {
+  display: block;
+  width: 32px;
+  height: 32px;
 }
 .toast-wrap {
   position: fixed;
@@ -1122,7 +1139,7 @@ footer {
   border: 1px solid var(--border);
   border-radius: 12px;
   box-shadow: 0 8px 28px #0002;
-  font-size: 12px;
+  font-size: 14px;
 }
 .toast-check {
   display: grid;
@@ -1131,11 +1148,11 @@ footer {
   width: 28px;
   border-radius: 50%;
   background: var(--accent);
-  color: #fff;
+  color: var(--brand-ink);
 }
 dialog {
   padding: 32px;
-  border-radius: 18px;
+  border-radius: 22px;
   border: 1px solid var(--border);
   background: var(--surface);
   color: var(--text);
@@ -1145,21 +1162,30 @@ dialog {
   max-height: 90vh;
 }
 dialog::backdrop {
-  background: #15191375;
+  background: #1e221d80;
   backdrop-filter: blur(6px);
+  transition:
+    opacity 200ms var(--ease),
+    backdrop-filter 200ms var(--ease);
+}
+@starting-style {
+  dialog[open]::backdrop {
+    opacity: 0;
+    backdrop-filter: blur(0);
+  }
 }
 dialog form {
   position: relative;
 }
 dialog h2 {
-  font:
-    32px/1.16 Georgia,
-    serif;
+  font-size: 32px;
+  line-height: 1.16;
+  font-weight: 600;
   letter-spacing: -1px;
   margin: 20px 18px 13px 0;
 }
 dialog p {
-  font-size: 12px;
+  font-size: 14px;
   color: var(--muted);
   line-height: 1.7;
   margin-bottom: 24px;
@@ -1168,7 +1194,7 @@ dialog label {
   margin-bottom: 17px;
 }
 dialog small {
-  font-size: 10px;
+  font-size: 12px;
   color: var(--muted);
 }
 .piece-details {
@@ -1186,8 +1212,8 @@ dialog small {
 }
 .uncertain::after {
   content: "Please check";
-  font-size: 9px;
-  color: var(--accent);
+  font-size: 12px;
+  color: var(--text);
 }
 dialog .wide {
   display: flex;
@@ -1206,7 +1232,7 @@ dialog .wide {
   margin: 15px auto 0;
 }
 .generating-icon {
-  animation: thinking 1.4s linear infinite;
+  animation: thinking 0.8s linear infinite;
 }
 @keyframes thinking {
   to {
@@ -1234,15 +1260,14 @@ dialog .wide {
   .cloth-card.anchored:hover {
     border-color: var(--accent);
   }
-  .save-button:hover {
-    border-color: var(--accent);
-    color: var(--accent);
+  .save-button:not(.is-saved):hover {
+    border-color: var(--faint);
   }
   .add-card:hover {
     background: var(--soft);
   }
   .text-button:hover {
-    color: var(--accent);
+    color: var(--muted);
   }
   .style-buttons button:not(.active):hover {
     border-color: var(--faint);
@@ -1308,30 +1333,24 @@ dialog .wide {
     width: 185px;
     padding: 27px 11px;
   }
-  .brand {
-    font-size: 27px;
-    padding: 0 9px;
-  }
-  .brandmark {
-    height: 30px;
-    width: 30px;
-    font-size: 28px;
+  .brand .logo {
+    height: 26px;
   }
   .nav-label {
-    font-size: 7px;
-    letter-spacing: 1px;
+    font-size: 10px;
+    letter-spacing: 0.04em;
   }
   .nav-item {
-    font-size: 11px;
+    font-size: 13px;
   }
   .wardrobe-nav {
-    font-size: 10px;
+    font-size: 12px;
   }
   .side-tip {
     padding: 17px 12px;
   }
   .side-tip h3 {
-    font-size: 20px;
+    font-size: 16px;
   }
   main {
     margin-left: 185px;
@@ -1343,10 +1362,11 @@ dialog .wide {
     padding: 0 24px;
   }
   .header-right {
-    font-size: 8px;
+    font-size: 11px;
   }
   .studio-panel {
-    grid-template-columns: 1fr;
+    /* minmax(0, …) stops wide controls from stretching the column past the card. */
+    grid-template-columns: minmax(0, 1fr);
   }
   .studio-intro {
     border-right: 0;
@@ -1388,19 +1408,20 @@ dialog .wide {
     width: 250px;
     padding: 30px 20px;
     transform: translateX(-100%);
-    box-shadow: 20px 0 50px #0002;
   }
   .sidebar.open {
     transform: translateX(0);
+    /* Only while open: a closed sidebar's shadow would bleed onto the page edge. */
+    box-shadow: 20px 0 50px #0002;
   }
   .sidebar.open .nav-label {
-    font-size: 8px;
+    font-size: 11px;
   }
   .sidebar.open .nav-item {
-    font-size: 13px;
+    font-size: 14px;
   }
   .sidebar.open .wardrobe-nav {
-    font-size: 12px;
+    font-size: 14px;
   }
   .sidebar.open .side-tip {
     margin-top: 40px;
@@ -1421,12 +1442,24 @@ dialog .wide {
     place-items: center;
     padding: 5px;
   }
+  .mobile-logo {
+    display: block;
+    /* 32 px is the full symbol's minimum size (brand guidelines). */
+    height: 32px;
+    width: 32px;
+  }
   .breadcrumb {
-    font-size: 9px;
+    font-size: 12px;
     margin-right: auto;
   }
-  .breadcrumb > span {
-    margin: 0 6px;
+  .crumb-root,
+  .crumb-sep {
+    display: none;
+  }
+  .breadcrumb {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   .header-right {
     font-size: 0;
@@ -1441,22 +1474,18 @@ dialog .wide {
     gap: 3px;
   }
   .theme-picker select {
-    font-size: 10px;
+    font-size: 12px;
     min-height: 34px;
   }
   .content {
     padding: 27px 19px 0;
   }
   .eyebrow {
-    font-size: 8px;
+    font-size: 11px;
     margin-bottom: 15px;
   }
   h1 {
-    font-size: 42px;
-    letter-spacing: -2px;
-  }
-  h1 em {
-    letter-spacing: -1.7px;
+    font-size: 38px;
   }
   .page-heading {
     align-items: flex-start;
@@ -1474,7 +1503,7 @@ dialog .wide {
     width: 18px;
   }
   .page-heading p {
-    font-size: 11px;
+    font-size: 13px;
     max-width: 260px;
   }
   .workspace-strip {
@@ -1483,7 +1512,7 @@ dialog .wide {
   }
   .workspace-stats {
     gap: 10px;
-    font-size: 9px;
+    font-size: 12px;
   }
   .workspace-stats span:nth-child(2) {
     display: none;
@@ -1492,7 +1521,7 @@ dialog .wide {
     gap: 6px;
   }
   .collection-select select {
-    font-size: 10px;
+    font-size: 12px;
     max-width: 145px;
     padding-right: 12px;
   }
@@ -1512,7 +1541,7 @@ dialog .wide {
     font-size: 22px;
   }
   .controls-description {
-    font-size: 11px;
+    font-size: 13px;
     margin-bottom: 22px;
   }
   .style-buttons {
@@ -1521,7 +1550,7 @@ dialog .wide {
   }
   .style-buttons button {
     padding: 9px 10px;
-    font-size: 10px;
+    font-size: 12px;
   }
   .select-row {
     gap: 11px;
@@ -1532,12 +1561,12 @@ dialog .wide {
     gap: 12px;
   }
   .generate-row .button {
-    font-size: 10px;
+    font-size: 12px;
     padding: 12px 14px;
     gap: 7px;
   }
   .toggle-label {
-    font-size: 9px;
+    font-size: 12px;
     gap: 7px;
   }
   .clothes-grid {
@@ -1551,22 +1580,22 @@ dialog .wide {
     font-size: 18px;
   }
   .section-heading h2 span {
-    font-size: 8px;
+    font-size: 11px;
     margin-left: 3px;
     padding: 3px 6px;
   }
   .section-heading > .text-button {
-    font-size: 9px;
+    font-size: 12px;
   }
   .section-heading p {
-    font-size: 9px;
+    font-size: 12px;
   }
   .category-tabs {
     gap: 2px;
   }
   .category-tabs button {
     padding: 8px 10px;
-    font-size: 9px;
+    font-size: 12px;
   }
   .filter-caption {
     display: none;
@@ -1575,17 +1604,17 @@ dialog .wide {
     padding: 12px 10px;
   }
   .cloth-info h3 {
-    font-size: 10px;
+    font-size: 12px;
   }
   .cloth-info > div {
-    font-size: 8px;
+    font-size: 11px;
   }
   .add-card {
     min-height: 215px;
   }
   .search input {
     max-width: 105px;
-    font-size: 10px;
+    font-size: 12px;
   }
   .look-info h3 {
     font-size: 16px;
@@ -1594,11 +1623,11 @@ dialog .wide {
     font-size: 26px;
   }
   footer {
-    font-size: 8px;
+    font-size: 11px;
     gap: 12px;
   }
   .toast {
-    font-size: 11px;
+    font-size: 13px;
   }
   dialog {
     padding: 29px 25px;
@@ -1620,12 +1649,18 @@ dialog .wide {
   }
 }
 @media (prefers-reduced-motion: reduce) {
+  /* Fewer, gentler animations, not none: fades and colour changes still explain state. */
   *,
   *::before,
   *::after {
-    transition: none !important;
+    transition-property: opacity, color, background-color, border-color !important;
     scroll-behavior: auto !important;
     animation: none !important;
+  }
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation-duration: 150ms !important;
   }
   button:active {
     transform: none;
@@ -1635,6 +1670,10 @@ dialog .wide {
   }
 }
 @media (prefers-reduced-transparency: reduce) {
+  header {
+    background: var(--page);
+    backdrop-filter: none;
+  }
   dialog::backdrop {
     backdrop-filter: none;
     background: #151913bb;
@@ -1642,9 +1681,9 @@ dialog .wide {
 }
 @media (prefers-contrast: more) {
   :root {
-    --muted: #4e5148;
-    --faint: #606357;
-    --border: #828675;
+    --muted: #464a43;
+    --faint: #5a5d55;
+    --border: #7d8176;
   }
   :root[data-theme="dark"] {
     --muted: #d2d7c7;
@@ -1664,7 +1703,7 @@ dialog .wide {
 }
 @media (max-width: 640px) {
   .sidebar {
-    transition: transform 220ms var(--ease);
+    transition: transform 280ms var(--ease-drawer);
   }
   .sidebar-close {
     display: grid;
@@ -1679,9 +1718,13 @@ dialog .wide {
     display: block;
     position: fixed;
     inset: 0;
-    background: #141a135e;
+    background: #1e221d66;
     z-index: 4;
     cursor: default;
+    transition: opacity 280ms var(--ease-drawer);
+    @starting-style {
+      opacity: 0;
+    }
   }
   :root[data-input="keyboard"] .sidebar {
     transition: none;

@@ -24,6 +24,10 @@ import { useWardrobeCatalog } from "./useWardrobeCatalog";
 import { motion, AnimatePresence, MotionConfig } from "motion/react";
 import { resolveApiUrl, requestJson } from "./api";
 import { validTheme, resolvedTheme, type Theme } from "./theme";
+import { Logo, LogoSymbol } from "./brand";
+
+// Strong ease-out (matches --ease in style.css): fast start, gentle settle.
+const EASE_OUT = [0.23, 1, 0.32, 1] as const;
 type Category = "tops" | "pants" | "shoes" | "jackets";
 type Draft = {
   name: string;
@@ -217,16 +221,18 @@ function App() {
   const [theme, setTheme] = useState<Theme>(() =>
     validTheme(localStorage.getItem("atelier-theme")),
   );
+  const themeApplied = useRef(false);
   useEffect(() => {
     const media = window.matchMedia("(prefers-color-scheme: dark)");
-    const apply = () => {
+    const paint = () => {
       document
         .querySelector('meta[name="theme-color"]')
         ?.setAttribute(
           "content",
+          // Brand colours: Wardrobe Ink on dark, Linen on light.
           resolvedTheme(theme, media.matches) === "dark"
-            ? "#171917"
-            : "#f9f7f3",
+            ? "#1E221D"
+            : "#F6F2EA",
         );
       document.documentElement.dataset.theme = resolvedTheme(
         theme,
@@ -236,6 +242,24 @@ function App() {
         theme,
         media.matches,
       );
+    };
+    // First paint is instant; later light/dark changes crossfade (View Transitions)
+    // so the page eases between brightness levels instead of flashing.
+    const apply = () => {
+      const animated =
+        themeApplied.current &&
+        // A crossfade is opacity only, so it stays under reduced motion (shortened in CSS).
+        "startViewTransition" in document &&
+        document.visibilityState === "visible" &&
+        document.documentElement.dataset.theme !==
+          resolvedTheme(theme, media.matches);
+      themeApplied.current = true;
+      if (animated) {
+        document.startViewTransition(paint);
+        // The transition only applies the change once a frame renders; never let
+        // a throttled or minimized window hold the theme back. paint() is idempotent.
+        window.setTimeout(paint, 250);
+      } else paint();
     };
     apply();
     localStorage.setItem("atelier-theme", theme);
@@ -571,8 +595,7 @@ function App() {
               setView("studio");
             }}
           >
-            <span className="brandmark">o</span>outfitly
-            <span className="brand-dot">.</span>
+            <Logo />
           </a>
           <div className="nav-label">THE PERSONAL STYLE STUDIO</div>
           <nav>
@@ -599,7 +622,8 @@ function App() {
                     />
                   )}
                   <I size={19} />
-                  {label as string}
+                  {/* Wrapped so it sits above the selection indicator. */}
+                  <span>{label as string}</span>
                   {key === "saved" && (
                     <span className="count">{saved.length}</span>
                   )}
@@ -673,8 +697,10 @@ function App() {
             >
               <Menu />
             </button>
+            <LogoSymbol className="mobile-logo" />
             <span className="breadcrumb">
-              Your space <span>/</span>{" "}
+              <span className="crumb-root">Your space</span>
+              <span className="crumb-sep">/</span>
               {view === "studio"
                 ? "Outfit studio"
                 : view === "saved"
@@ -965,10 +991,15 @@ function App() {
                   {looks.map((look, i) => (
                     <motion.article
                       className="look-card"
-                      key={i}
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      transition={{ duration: keyboardMode ? 0 : 0.2 }}
+                      key={look.items.map((c) => c.id).join()}
+                      // Full transform strings stay on the compositor; 50 ms stagger.
+                      initial={{ opacity: 0, transform: "translateY(8px)" }}
+                      animate={{ opacity: 1, transform: "translateY(0px)" }}
+                      transition={
+                        keyboardMode
+                          ? { duration: 0 }
+                          : { duration: 0.24, ease: EASE_OUT, delay: i * 0.05 }
+                      }
                     >
                       <div className="look-art">
                         {look.items.map((c) => (
@@ -1202,7 +1233,9 @@ function App() {
             )}
             <footer>
               <span className="footer-spark">
-                <Sparkles size={14} /> A little less effort. A little more you.
+                {/* Under 32 px the guidelines require the collar-less small cut. */}
+                <LogoSymbol small title="" className="footer-mark" /> A little
+                less effort. A little more you.
               </span>
               <span>Made for your everyday.</span>
             </footer>
@@ -1217,12 +1250,17 @@ function App() {
                 key={notice}
                 initial={{
                   opacity: 0,
-                  y: keyboardMode ? 0 : 12,
-                  scale: keyboardMode ? 1 : 0.98,
+                  transform: keyboardMode
+                    ? "none"
+                    : "translateY(12px) scale(0.98)",
                 }}
-                animate={{ opacity: 1, y: 0, scale: 1 }}
-                exit={{ opacity: 0, y: keyboardMode ? 0 : 8 }}
-                transition={{ duration: keyboardMode ? 0 : 0.18 }}
+                animate={{ opacity: 1, transform: "translateY(0px) scale(1)" }}
+                exit={{
+                  opacity: 0,
+                  transform: keyboardMode ? "none" : "translateY(8px) scale(1)",
+                  transition: { duration: keyboardMode ? 0 : 0.14, ease: EASE_OUT },
+                }}
+                transition={{ duration: keyboardMode ? 0 : 0.22, ease: EASE_OUT }}
               >
                 <span className="toast-check">
                   <Check size={16} />
@@ -1258,7 +1296,7 @@ function App() {
               >
                 <X size={20} />
               </button>
-              <span className="small-label">YOUR OUTFITLY</span>
+              <LogoSymbol className="dialog-mark" title="" />
               <h2>
                 {modal === "auth"
                   ? register
