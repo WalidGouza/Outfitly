@@ -17,6 +17,7 @@ import {
   Sun,
   Moon,
   Monitor,
+  Trash2,
 } from "lucide-react";
 import "./style.css";
 import { useWardrobeCatalog } from "./useWardrobeCatalog";
@@ -268,6 +269,7 @@ function App() {
   const [error, setError] = useState("");
   const [mobile, setMobile] = useState(false);
   const [register, setRegister] = useState(false);
+  const [pieceToRemove, setPieceToRemove] = useState<Cloth | null>(null);
   const [draft, setDraft] = useState<Draft>(emptyDraft);
   const [analysis, setAnalysis] = useState<Analysis>("idle");
   const [confidence, setConfidence] = useState<Record<string, number>>({});
@@ -477,6 +479,24 @@ function App() {
       setError((e as Error).message);
     }
   }
+  const outfitsWith = (piece: Cloth | null) =>
+    piece ? saved.filter((l) => l.items.some((c) => c.id === piece.id)) : [];
+  async function removePiece(piece: Cloth) {
+    const result = await request(
+      `/wardrobes/${wid}/clothes/${piece.id}`,
+      "DELETE",
+    );
+    const without = (l: Look) => !l.items.some((c) => c.id === piece.id);
+    setClothes((all) => all.filter((c) => c.id !== piece.id));
+    setSaved((all) => all.filter(without));
+    setLooks((all) => all.filter(without));
+    if (anchor === piece.id) setAnchor("");
+    setNotice(
+      result.removed_outfits
+        ? `${piece.name} and ${result.removed_outfits} saved outfit${result.removed_outfits === 1 ? "" : "s"} removed`
+        : `${piece.name} removed`,
+    );
+  }
   async function submit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const f = new FormData(e.currentTarget);
@@ -498,6 +518,8 @@ function App() {
       } else if (modal === "wardrobe") {
         const w = await request("/wardrobes", "POST", { name: f.get("name") });
         catalog.add(w);
+      } else if (modal === "remove") {
+        if (pieceToRemove) await removePiece(pieceToRemove);
       } else {
         await request(`/wardrobes/${wid}/clothes`, "POST", f);
         setClothes(await request(`/wardrobes/${wid}/clothes`));
@@ -1061,10 +1083,10 @@ function App() {
                 </div>
                 <div className="clothes-grid">
                   {visible.map((c) => (
+                    <div className="cloth-slot" key={c.id}>
                     <button
                       aria-pressed={anchor === c.id}
                       className={`cloth-card ${anchor === c.id ? "anchored" : ""}`}
-                      key={c.id}
                       onClick={() => {
                         setAnchor(anchor === c.id ? "" : c.id);
                         setView("studio");
@@ -1096,6 +1118,22 @@ function App() {
                         </div>
                       </div>
                     </button>
+                    {!demo && (
+                      <button
+                        type="button"
+                        className="remove-piece"
+                        aria-label={`Remove ${c.name}`}
+                        title="Remove piece"
+                        onClick={() => {
+                          setPieceToRemove(c);
+                          setError("");
+                          setModal("remove");
+                        }}
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    )}
+                    </div>
                   ))}
                   <button
                     className="add-card"
@@ -1228,14 +1266,23 @@ function App() {
                     : "Welcome to your wardrobe."
                   : modal === "wardrobe"
                     ? "A wardrobe for every mood."
-                    : "Add something you love."}
+                    : modal === "remove"
+                      ? `Remove ${pieceToRemove?.name ?? "this piece"}?`
+                      : "Add something you love."}
               </h2>
               <p>
                 {modal === "auth"
                   ? "A home for your clothes, and a fresh perspective on your style."
                   : modal === "wardrobe"
                     ? "Give this collection a name."
-                    : "Use a clear photo of one garment. We fill in the details; change anything that's off."}
+                    : modal === "remove"
+                      ? (() => {
+                          const n = outfitsWith(pieceToRemove).length;
+                          return n
+                            ? `Its photo will be deleted, along with ${n} saved outfit${n === 1 ? "" : "s"} that use${n === 1 ? "s" : ""} it. This can't be undone.`
+                            : "Its photo will be deleted. This can't be undone.";
+                        })()
+                      : "Use a clear photo of one garment. We fill in the details; change anything that's off."}
               </p>
               {displayedError && (
                 <div className="error" role="alert">
@@ -1268,7 +1315,7 @@ function App() {
                   </label>
                   <small>At least 10 characters</small>
                 </>
-              ) : modal === "wardrobe" ? (
+              ) : modal === "remove" ? null : modal === "wardrobe" ? (
                 <label>
                   Wardrobe name
                   <input
@@ -1368,7 +1415,7 @@ function App() {
                 </>
               )}
               <button
-                className="button primary wide"
+                className={`button primary wide ${modal === "remove" ? "danger" : ""}`}
                 disabled={busy || analysis === "running"}
               >
                 {busy
@@ -1381,7 +1428,9 @@ function App() {
                       : "Sign in"
                     : modal === "wardrobe"
                       ? "Create wardrobe"
-                      : "Add to wardrobe"}
+                      : modal === "remove"
+                        ? "Remove piece"
+                        : "Add to wardrobe"}
                 <ArrowRight size={17} />
               </button>
               {modal === "auth" && (

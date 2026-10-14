@@ -112,6 +112,17 @@ def test_wardrobe_upload_generate_save_and_isolation(client):
         client.delete(f"/wardrobes/{wid}/outfits/{oid}", headers=alice).status_code
         == 200
     )
+    client.post(f"/wardrobes/{wid}/outfits", headers=alice, json=body)
+    removed = look["items"][1]
+    assert (
+        client.delete(f"/wardrobes/{wid}/clothes/{removed['id']}", headers=bob).status_code
+        == 404
+    )
+    r = client.delete(f"/wardrobes/{wid}/clothes/{removed['id']}", headers=alice)
+    assert r.status_code == 200 and r.json()["removed_outfits"] == 1
+    assert client.get(f"/wardrobes/{wid}/outfits", headers=alice).json() == []
+    assert removed["id"] not in [c["id"] for c in client.get(f"/wardrobes/{wid}/clothes", headers=alice).json()]
+    assert client.get(f"/images/{removed['image']}", headers=alice).status_code == 404
 
 
 def test_invalid_upload_and_incomplete_wardrobe(client):
