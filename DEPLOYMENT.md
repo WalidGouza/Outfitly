@@ -1,6 +1,6 @@
 # Production: Render core API + Vercel frontend + Supabase
 
-The core API in `backend/` has no PyTorch dependency and fits Render's free instance. The CLIP model lives in `ml-service/` and is hosted separately (see [ml-service/README.md](ml-service/README.md)); until it is, uploads and outfit generation return 503 while accounts, wardrobes and saved outfits work.
+The core API in `backend/` has no PyTorch dependency and fits Render's free instance. The CLIP model lives in `ml-service/` and runs on Modal (section 3); until it is set up, uploads and outfit generation return 503 while accounts, wardrobes and saved outfits work.
 
 ## 1. Core API on Render
 
@@ -33,13 +33,13 @@ VITE_API_URL=https://YOUR_SERVICE.onrender.com
 
 Redeploy after changing either variable; Vite bakes them in at build time. For Preview deployments, add their exact origins to `FRONTEND_ORIGINS` on Render.
 
-## 3. ML service (later)
+## 3. ML service on Modal
 
-Host `ml-service/` anywhere that can run its Dockerfile with roughly 1–2 GB RAM. Give it `APP_ENV=prod` and an `ML_SERVICE_TOKEN` of at least 32 characters, then set on Render:
+Deploy `ml-service/` with `modal deploy modal_app.py`, following the step-by-step guide in [ml-service/README.md](ml-service/README.md#hosting-on-modal). Then set on Render:
 
 ```dotenv
-ML_SERVICE_URL=https://YOUR_ML_HOST
+ML_SERVICE_URL=https://YOUR_WORKSPACE--outfitly-ml-web.modal.run
 ML_SERVICE_TOKEN=THE_SAME_TOKEN
 ```
 
-`ML_SERVICE_TIMEOUT` (default 90 s) allows for a cold ML host. Verify by uploading a photo and generating an outfit in the app.
+`ML_SERVICE_TIMEOUT` (default 90 s) allows for a host that scales to zero and has to cold-start. Verify by uploading a photo and generating an outfit in the app.

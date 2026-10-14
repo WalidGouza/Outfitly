@@ -29,7 +29,7 @@ The backend runs without it; uploads and outfit generation then return 503. To r
 2. In `backend/.env` set `ML_SERVICE_URL=http://ml-service:8001` (Docker) or `http://127.0.0.1:8001` (native).
 3. Docker: uncomment `COMPOSE_PROFILES=ml` in the root `.env` and rerun `docker compose up -d --build`. Native: see [ml-service/README.md](ml-service/README.md).
 
-The first upload downloads the CLIP model (~600 MB).
+The image build downloads the CLIP model (~600 MB) once; containers then start without a download.
 
 ## Frontend
 

@@ -8,7 +8,7 @@ Outfitly organizes uploaded clothes into multiple wardrobes, matches outfits usi
 |---|---|---|
 | Frontend (React/Vite) | `frontend/` | Vercel |
 | Core API: accounts, wardrobes, outfits, matching, photo storage | `backend/` | Render (free tier, no PyTorch) |
-| ML service: CLIP image/text embeddings (PyTorch) | `ml-service/` | Not decided yet — see [ml-service/README.md](ml-service/README.md) |
+| ML service: CLIP image/text embeddings (PyTorch) | `ml-service/` | Modal (serverless, scales to zero, $30/month free credit) — see [ml-service/README.md](ml-service/README.md#hosting-on-modal) |
 | PostgreSQL/pgvector + private photos | – | Supabase |
 
 The core API calls the ML service over HTTP with a shared `ML_SERVICE_TOKEN`. Until `ML_SERVICE_URL` is configured, sign-up, login, wardrobes and saved outfits work normally; photo uploads and outfit generation return a clear 503.

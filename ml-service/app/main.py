@@ -37,6 +37,7 @@ def authorized(auth: HTTPAuthorizationCredentials | None = Depends(bearer)):
         raise HTTPException(401, "Invalid service token")
 
 
+@app.get("/")
 @app.get("/live")
 def live():
     return {"status": "ok", "service": "outfitly-ml", "environment": s.app_env}
