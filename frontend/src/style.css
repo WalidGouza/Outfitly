@@ -518,13 +518,22 @@ h1 em {
   overflow: hidden;
   box-shadow: inset 0 0 35px #37302208;
 }
+/* With the video, the board takes the video's 3:2 shape so little space is
+   letterboxed; capped so it fits beside the studio controls. */
+.wardrobe-board:has(> .board-video) {
+  width: 100%;
+  height: auto;
+  aspect-ratio: 3 / 2;
+  max-height: 320px;
+}
 .board-video {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
-  /* The render's background is the board colour, so cropping to fill is seamless. */
-  object-fit: cover;
+  /* Show the whole frame at any board shape: the render's background is the
+     board colour (encoded BT.709), so the space around it blends in. */
+  object-fit: contain;
 }
 .board-video-toggle {
   position: absolute;

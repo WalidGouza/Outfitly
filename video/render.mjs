@@ -38,7 +38,10 @@ for (const [id, theme] of [
   // Poster = frame 0, which is also the last frame of the loop.
   await renderStill({ serveUrl, composition, frame: 0, output: `${base}.jpg`, imageFormat: "jpeg", jpegQuality: 82 });
   // VP9 WebM for Chrome/Firefox/Edge, H.264 MP4 as the universal fallback (Safari).
-  await renderMedia({ serveUrl, composition, codec: "vp9", crf: 36, outputLocation: `${base}.webm`, muted: true });
-  await renderMedia({ serveUrl, composition, codec: "h264", crf: 26, outputLocation: `${base}.mp4`, muted: true, pixelFormat: "yuv420p" });
+  // BT.709 with PNG frames keeps colours exact: the background must decode to the
+  // app's board colour so the video blends into the board with no visible edge.
+  const accurate = { colorSpace: "bt709", imageFormat: "png", muted: true };
+  await renderMedia({ serveUrl, composition, codec: "vp9", crf: 36, outputLocation: `${base}.webm`, ...accurate });
+  await renderMedia({ serveUrl, composition, codec: "h264", crf: 26, outputLocation: `${base}.mp4`, pixelFormat: "yuv420p", ...accurate });
   console.log(`${theme}: ${base}.{webm,mp4,jpg}`);
 }
