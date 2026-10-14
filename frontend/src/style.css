@@ -518,6 +518,14 @@ h1 em {
   overflow: hidden;
   box-shadow: inset 0 0 35px #37302208;
 }
+.board-video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  /* The render's background is the board colour, so cropping to fill is seamless. */
+  object-fit: cover;
+}
 .board-piece {
   position: absolute;
   display: grid;

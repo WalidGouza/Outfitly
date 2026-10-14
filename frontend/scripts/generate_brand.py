@@ -92,5 +92,7 @@ export function LogoSymbol({{
   );
 }}
 '''
-(root / "frontend" / "src" / "brand.tsx").write_text(src, encoding="utf-8")
+# The app and the Remotion video project share the same generated components.
+for target in (root / "frontend" / "src" / "brand.tsx", root / "video" / "src" / "brand.tsx"):
+    target.write_text(src, encoding="utf-8")
 print("ok", len(src))
