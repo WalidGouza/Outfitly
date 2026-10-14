@@ -10,3 +10,7 @@ __pycache__/
 uploads/
 *.tsbuildinfo
 .claude/
+.agents/
+.vercel/
+.env*
+!.env.example

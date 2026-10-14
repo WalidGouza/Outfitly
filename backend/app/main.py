@@ -280,6 +280,31 @@ def upload(
     return cloth_json(c)
 
 
+@app.delete("/wardrobes/{wid}/clothes/{cid}")
+def remove_piece(wid: str, cid: str, u=Depends(user), session=Depends(db)):
+    owned(wid, u, session)
+    c = session.get(Cloth, cid)
+    if not c or c.wardrobe_id != wid:
+        raise HTTPException(404, "Piece not found")
+    # Saved outfits would be incomplete without this piece, so they go with it.
+    outfits = [
+        o
+        for o in session.scalars(select(Outfit).where(Outfit.wardrobe_id == wid))
+        if cid in o.cloth_ids
+    ]
+    for o in outfits:
+        session.delete(o)
+    filename = c.image
+    session.delete(c)
+    session.commit()
+    try:
+        image_storage.delete(filename)
+    except Exception:
+        # The piece is already gone; an orphaned private photo is harmless.
+        logger.error("Image cleanup failed after removing a piece")
+    return {"ok": True, "removed_outfits": len(outfits)}
+
+
 @app.get("/images/{filename}")
 def get_image(filename: str, u=Depends(user), session=Depends(db)):
     c = session.scalar(
@@ -393,15 +418,20 @@ def save(wid: str, body: Save, u=Depends(user), session=Depends(db)):
 @app.get("/wardrobes/{wid}/outfits")
 def saved(wid: str, u=Depends(user), session=Depends(db)):
     owned(wid, u, session)
-    return [
-        {
-            "id": o.id,
-            "name": o.name,
-            "style": o.style,
-            "items": [cloth_json(session.get(Cloth, cid)) for cid in o.cloth_ids],
-        }
-        for o in session.scalars(select(Outfit).where(Outfit.wardrobe_id == wid))
-    ]
+    looks = []
+    for o in session.scalars(select(Outfit).where(Outfit.wardrobe_id == wid)):
+        items = [session.get(Cloth, cid) for cid in o.cloth_ids]
+        # Skip outfits left incomplete by data from before piece removal existed.
+        if all(items):
+            looks.append(
+                {
+                    "id": o.id,
+                    "name": o.name,
+                    "style": o.style,
+                    "items": [cloth_json(c) for c in items],
+                }
+            )
+    return looks
 
 
 @app.delete("/wardrobes/{wid}/outfits/{oid}")

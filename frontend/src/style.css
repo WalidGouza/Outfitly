@@ -812,6 +812,42 @@ input:focus-visible + .toggle {
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 18px;
 }
+.cloth-slot {
+  position: relative;
+  display: grid;
+}
+.remove-piece {
+  position: absolute;
+  top: 9px;
+  left: 9px;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--surface);
+  color: var(--muted);
+  opacity: 0;
+  transition: opacity 0.15s, color 0.15s;
+}
+.cloth-slot:hover .remove-piece,
+.remove-piece:focus-visible {
+  opacity: 1;
+}
+.remove-piece:hover {
+  color: var(--accent);
+}
+/* Touch screens have no hover, so the button stays visible. */
+@media (hover: none) {
+  .remove-piece {
+    opacity: 1;
+  }
+}
+.button.danger {
+  background: var(--accent);
+  border-color: var(--accent);
+}
 .cloth-card {
   padding: 0;
   text-align: left;
@@ -827,10 +863,10 @@ input:focus-visible + .toggle {
   place-items: center;
   position: relative;
 }
-.cloth-card:nth-child(3n + 2) .cloth-art {
+.cloth-slot:nth-child(3n + 2) .cloth-art {
   background: color-mix(in srgb, var(--board) 58%, var(--surface));
 }
-.cloth-card:nth-child(3n) .cloth-art {
+.cloth-slot:nth-child(3n) .cloth-art {
   background: color-mix(in srgb, var(--board) 70%, var(--page));
 }
 .cloth-art > svg {
