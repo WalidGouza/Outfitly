@@ -111,6 +111,23 @@ jobs:
           APP_ENV: prod
           VITE_API_URL: https://api.example.com
 
+  mobile:
+    name: Mobile typecheck and lint
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
+
   changes:
     name: Detect changed parts
     if: github.event_name == 'push'
