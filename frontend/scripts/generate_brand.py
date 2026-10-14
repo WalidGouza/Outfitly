@@ -92,7 +92,8 @@ export function LogoSymbol({{
   );
 }}
 '''
-# The app and the Remotion video project share the same generated components.
+# The app and the local-only Remotion project (video/, not in git) share these components.
 for target in (root / "frontend" / "src" / "brand.tsx", root / "video" / "src" / "brand.tsx"):
-    target.write_text(src, encoding="utf-8")
+    if target.parent.is_dir():
+        target.write_text(src, encoding="utf-8")
 print("ok", len(src))
