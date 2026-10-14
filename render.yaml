@@ -9,6 +9,8 @@ services:
     buildCommand: pip install -r requirements.txt
     startCommand: python -m app.run
     healthCheckPath: /health
+    # Deploy only after the GitHub Actions checks on main pass (.github/workflows/ci-cd.yml).
+    autoDeployTrigger: checksPass
     envVars:
       - key: PYTHON_VERSION
         value: 3.12.8

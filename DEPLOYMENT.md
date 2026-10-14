@@ -43,3 +43,35 @@ ML_SERVICE_TOKEN=THE_SAME_TOKEN
 ```
 
 `ML_SERVICE_TIMEOUT` (default 90 s) allows for a host that scales to zero and has to cold-start. Verify by uploading a photo and generating an outfit in the app.
+
+## 4. CI/CD with GitHub Actions
+
+`.github/workflows/ci-cd.yml` runs on every push and pull request:
+
+| Job | What it checks |
+|---|---|
+| Backend tests | Unit tests plus PostgreSQL/pgvector integration tests against a throwaway database; the Docker image builds |
+| ML service tests | API tests with a stub model (no PyTorch); `modal_app.py` loads |
+| Frontend tests and build | `npm test` and a production build |
+
+On pushes to `main`, after all three pass:
+
+- **ML service** is deployed to Modal (`modal deploy`) when `ml-service/` changed.
+- **Frontend** is built and deployed to Vercel production when `frontend/` changed. Pull requests still get Vercel preview deployments from Vercel's Git integration; `frontend/vercel.json` only turns off its automatic production deploys from `main`.
+- **Backend**: Render deploys by itself once the workflow's checks pass (`autoDeployTrigger: checksPass` in `render.yaml`), so a failing test never reaches production.
+
+Run the workflow manually (Actions > CI/CD > Run workflow) to redeploy everything.
+
+### One-time setup
+
+1. In GitHub, open **Settings > Environments**, create an environment named `production`, and add these secrets to it. Optionally add yourself as a required reviewer to approve each deploy.
+
+   | Secret | Where to get it |
+   |---|---|
+   | `MODAL_TOKEN_ID`, `MODAL_TOKEN_SECRET` | Modal dashboard > Settings > API Tokens > New token |
+   | `VERCEL_TOKEN` | Vercel > Account Settings > Tokens |
+   | `VERCEL_ORG_ID`, `VERCEL_PROJECT_ID` | Run `npx vercel link` in the repository root and pick the existing project; the IDs are in `.vercel/project.json` (git-ignored) |
+
+   Optional: add an environment **variable** `ML_SERVICE_URL` (your `.modal.run` URL) to smoke-test the ML service after each deploy.
+2. In Render, if the service was not created from `render.yaml`, open the service's **Settings > Build & Deploy > Auto-Deploy** and choose **After CI Checks Pass**.
+3. Protect `main` (Settings > Branches > Add rule): require the three test jobs to pass before merging pull requests.
