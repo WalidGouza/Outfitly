@@ -1,6 +1,7 @@
 # CI on every push and pull request; CD to production on pushes to main.
 #
-#   Frontend (Vercel)  deployed here with the Vercel CLI after all tests pass.
+#   Frontend (Vercel)  deployed here with the Vercel CLI after all tests pass. Vercel builds
+#                      it remotely, so "Sensitive" project env vars are available.
 #   ML service (Modal) deployed here with `modal deploy` after all tests pass.
 #   Backend (Render)   deployed by Render itself once this workflow's checks pass
 #                      (render.yaml: autoDeployTrigger: checksPass).
@@ -17,6 +18,18 @@ on:
 
 permissions:
   contents: read
+
+env:
+  # Fails with a clear message naming any secret missing from the "production" environment.
+  CHECK_SECRETS: |
+    missing=0
+    for name in "$@"; do
+      if [ -z "${!name}" ]; then
+        echo "::error title=Missing secret::$name is not set in the GitHub 'production' environment"
+        missing=1
+      fi
+    done
+    exit $missing
 
 concurrency:
   group: ci-cd-${{ github.ref }}
@@ -134,16 +147,19 @@ jobs:
     defaults:
       run:
         working-directory: ml-service
+    env:
+      MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
+      MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
     steps:
+      - name: Check secrets
+        run: bash -c "$CHECK_SECRETS" -- MODAL_TOKEN_ID MODAL_TOKEN_SECRET
+        working-directory: .
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
       - run: pip install "modal>=1.6,<2"
-      - run: modal deploy modal_app.py
-        env:
-          MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
-          MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
+      - run: bash ../.github/scripts/run-and-annotate.sh modal deploy modal_app.py
       - name: Smoke test
         if: vars.ML_SERVICE_URL != ''
         run: curl --fail --silent --show-error --retry 6 --retry-delay 10 --retry-all-errors --max-time 90 "${{ vars.ML_SERVICE_URL }}/live"
@@ -158,19 +174,16 @@ jobs:
     env:
       VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
       VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
     steps:
+      - name: Check secrets
+        run: bash -c "$CHECK_SECRETS" -- VERCEL_ORG_ID VERCEL_PROJECT_ID VERCEL_TOKEN
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
         with:
           node-version: 22
       - run: npm install --global vercel@latest
-      # Run from the repository root: the Vercel project's Root Directory is frontend/.
-      - run: vercel pull --yes --environment=production --token="$VERCEL_TOKEN"
-        env:
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-      - run: vercel build --prod --token="$VERCEL_TOKEN"
-        env:
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-      - run: vercel deploy --prebuilt --prod --token="$VERCEL_TOKEN"
-        env:
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      # Built on Vercel, not here: `vercel pull` cannot download "Sensitive" env vars
+      # (APP_ENV, VITE_API_URL), so a local `vercel build` would get placeholders.
+      # Run from the repository root: the project's Root Directory is frontend/.
+      - run: bash .github/scripts/run-and-annotate.sh vercel deploy --prod --yes --token="$VERCEL_TOKEN"
