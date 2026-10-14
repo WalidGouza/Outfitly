@@ -21,6 +21,7 @@ from .database import make_engine
 from .models import Base, User, Wardrobe, Cloth, Outfit
 from .embeddings import EmbeddingClient, EmbeddingUnavailable
 from .matching import rank
+from . import attributes
 from .storage import ImageStorage, StorageUnavailable
 from .run import api_options
 
@@ -195,23 +196,8 @@ def clothes(wid: str, u=Depends(user), session=Depends(db)):
     ]
 
 
-@app.post("/wardrobes/{wid}/clothes")
-def upload(
-    wid: str,
-    name: str = Form(min_length=1, max_length=80),
-    category: Literal["tops", "pants", "shoes", "jackets"] = Form(),
-    texture: Literal[
-        "cotton", "denim", "knit", "leather", "linen", "silk", "other"
-    ] = Form(),
-    style: Literal[
-        "Everyday", "Minimal", "Smart casual", "Streetwear", "Evening"
-    ] = Form(),
-    color: str = Form(pattern=r"^#[0-9a-fA-F]{6}$"),
-    image: UploadFile = File(),
-    u=Depends(user),
-    session=Depends(db),
-):
-    owned(wid, u, session)
+def load_image(image: UploadFile):
+    """Validate an upload and return the normalised image and its stored JPEG bytes."""
     raw = image.file.read(10 * 1024 * 1024 + 1)
     if len(raw) > 10 * 1024 * 1024:
         raise HTTPException(413, "Image must be under 10 MB")
@@ -231,11 +217,46 @@ def upload(
         raise HTTPException(400, "Upload a valid JPG, PNG or WebP image")
     jpeg = BytesIO()
     im.save(jpeg, format="JPEG", quality=90)
+    return im, jpeg.getvalue()
+
+
+@app.post("/wardrobes/{wid}/clothes/analyze")
+def analyze(wid: str, image: UploadFile = File(), u=Depends(user), session=Depends(db)):
+    """Suggested form values for a photo. Nothing is stored."""
+    owned(wid, u, session)
+    im, jpeg = load_image(image)
     try:
-        vector = embeddings.image(jpeg.getvalue())
+        return attributes.suggest(im, jpeg, embeddings)
+    except EmbeddingUnavailable as exc:
+        logger.warning("Attribute detection unavailable: %s", exc)
+        return attributes.suggest_color_only(im)
     except ValueError:
         raise HTTPException(400, "Upload a valid JPG, PNG or WebP image") from None
-    filename = image_storage.save(jpeg.getvalue())
+
+
+@app.post("/wardrobes/{wid}/clothes")
+def upload(
+    wid: str,
+    name: str = Form(min_length=1, max_length=80),
+    category: Literal["tops", "pants", "shoes", "jackets"] = Form(),
+    texture: Literal[
+        "cotton", "denim", "knit", "leather", "linen", "silk", "other"
+    ] = Form(),
+    style: Literal[
+        "Everyday", "Minimal", "Smart casual", "Streetwear", "Evening"
+    ] = Form(),
+    color: str = Form(pattern=r"^#[0-9a-fA-F]{6}$"),
+    image: UploadFile = File(),
+    u=Depends(user),
+    session=Depends(db),
+):
+    owned(wid, u, session)
+    _, jpeg = load_image(image)
+    try:
+        vector = embeddings.image(jpeg)
+    except ValueError:
+        raise HTTPException(400, "Upload a valid JPG, PNG or WebP image") from None
+    filename = image_storage.save(jpeg)
     c = Cloth(
         wardrobe_id=wid,
         name=name,

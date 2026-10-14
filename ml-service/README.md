@@ -8,6 +8,7 @@ It has no database access and stores nothing. The core API calls it over HTTP wi
 |---|---|---|
 | `POST /embed/image` | raw JPEG bytes (`Content-Type: image/jpeg`, max 10 MB) | `{"embedding": [512 floats]}` |
 | `POST /embed/text` | `{"text": "..."}` | `{"embedding": [512 floats]}` |
+| `POST /embed/texts` | `{"texts": ["...", ...]}` (1–64) | `{"embeddings": [[512 floats], ...]}` — used for upload auto-detection labels |
 | `GET /live`, `GET /health` | – | status, and whether the model is loaded |
 
 ## Configuration

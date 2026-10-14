@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { createRoot } from "react-dom/client";
 import {
   Sparkles,
@@ -24,6 +24,24 @@ import { motion, AnimatePresence, MotionConfig } from "motion/react";
 import { resolveApiUrl, requestJson } from "./api";
 import { validTheme, resolvedTheme, type Theme } from "./theme";
 type Category = "tops" | "pants" | "shoes" | "jackets";
+type Draft = {
+  name: string;
+  category: string;
+  texture: string;
+  style: string;
+  color: string;
+};
+type Analysis = "idle" | "running" | "done" | "partial";
+const emptyDraft: Draft = {
+  name: "",
+  category: "tops",
+  texture: "cotton",
+  style: "Everyday",
+  color: "#8b927a",
+};
+const textures = ["cotton", "denim", "knit", "leather", "linen", "silk", "other"];
+// Below this confidence a detected field is flagged for the user to check.
+const uncertainBelow = 0.5;
 type Cloth = {
   id: string;
   name: string;
@@ -250,6 +268,12 @@ function App() {
   const [error, setError] = useState("");
   const [mobile, setMobile] = useState(false);
   const [register, setRegister] = useState(false);
+  const [draft, setDraft] = useState<Draft>(emptyDraft);
+  const [analysis, setAnalysis] = useState<Analysis>("idle");
+  const [confidence, setConfidence] = useState<Record<string, number>>({});
+  const analysisRun = useRef(0);
+  // Fields the user changed themselves are never overwritten by detection.
+  const edited = useRef(new Set<keyof Draft>());
   async function request(
     path: string,
     method = "GET",
@@ -274,6 +298,47 @@ function App() {
             : undefined,
     });
   }
+  useEffect(() => {
+    analysisRun.current++;
+    edited.current.clear();
+    setDraft(emptyDraft);
+    setConfidence({});
+    setAnalysis("idle");
+  }, [modal]);
+  function editDraft(field: keyof Draft, value: string) {
+    edited.current.add(field);
+    setDraft((d) => ({ ...d, [field]: value }));
+  }
+  async function analyzePhoto(file?: File) {
+    const run = ++analysisRun.current;
+    edited.current.clear();
+    setConfidence({});
+    if (!file) return setAnalysis("idle");
+    setAnalysis("running");
+    setError("");
+    const body = new FormData();
+    body.append("image", file);
+    try {
+      const found = await request(`/wardrobes/${wid}/clothes/analyze`, "POST", body);
+      if (run !== analysisRun.current) return;
+      setDraft((d) => {
+        const next = { ...d };
+        for (const key of Object.keys(d) as (keyof Draft)[])
+          if (found[key] && !edited.current.has(key)) next[key] = found[key];
+        return next;
+      });
+      setConfidence(found.confidence || {});
+      setAnalysis(found.detected ? "done" : "partial");
+    } catch (e) {
+      if (run !== analysisRun.current) return;
+      setAnalysis("idle");
+      setError((e as Error).message);
+    }
+  }
+  const uncertain = (field: string) =>
+    analysis === "done" && (confidence[field] ?? 1) < uncertainBelow
+      ? "uncertain"
+      : undefined;
   useEffect(() => {
     if (!notice) return;
     const t = setTimeout(() => setNotice(""), 3500);
@@ -1170,7 +1235,7 @@ function App() {
                   ? "A home for your clothes, and a fresh perspective on your style."
                   : modal === "wardrobe"
                     ? "Give this collection a name."
-                    : "Use a clear photo of one garment. Confirm its color and fabric."}
+                    : "Use a clear photo of one garment. We fill in the details; change anything that's off."}
               </p>
               {displayedError && (
                 <div className="error" role="alert">
@@ -1203,23 +1268,17 @@ function App() {
                   </label>
                   <small>At least 10 characters</small>
                 </>
-              ) : (
+              ) : modal === "wardrobe" ? (
                 <label>
-                  {" "}
-                  {modal === "wardrobe" ? "Wardrobe name" : "Piece name"}
+                  Wardrobe name
                   <input
                     name="name"
                     required
                     maxLength={80}
-                    placeholder={
-                      modal === "wardrobe"
-                        ? "Summer in the city"
-                        : "Relaxed linen shirt"
-                    }
+                    placeholder="Summer in the city"
                   />
                 </label>
-              )}
-              {modal === "upload" && (
+              ) : (
                 <>
                   <label className="upload-input">
                     Photo
@@ -1228,54 +1287,94 @@ function App() {
                       type="file"
                       accept="image/jpeg,image/png,image/webp"
                       required
+                      onChange={(e) => analyzePhoto(e.currentTarget.files?.[0])}
                     />
-                    <small>JPG, PNG or WebP · up to 10 MB</small>
+                    <small className="analysis-status" aria-live="polite">
+                      {analysis === "running"
+                        ? "Detecting details…"
+                        : analysis === "done"
+                          ? "Details detected. Review them and change anything that's off."
+                          : analysis === "partial"
+                            ? "Color detected. Automatic type detection is unavailable, so please choose the rest."
+                            : "JPG, PNG or WebP · up to 10 MB"}
+                    </small>
                   </label>
-                  <div className="select-row">
+                  <fieldset
+                    className="piece-details"
+                    disabled={analysis === "running"}
+                    aria-busy={analysis === "running"}
+                  >
                     <label>
-                      Category
-                      <select name="category">
-                        {["tops", "pants", "shoes", "jackets"].map((c) => (
-                          <option key={c}>{c}</option>
-                        ))}
-                      </select>
+                      Piece name
+                      <input
+                        name="name"
+                        required
+                        maxLength={80}
+                        placeholder="Relaxed linen shirt"
+                        value={draft.name}
+                        onChange={(e) => editDraft("name", e.target.value)}
+                      />
                     </label>
-                    <label>
-                      Texture
-                      <select name="texture">
-                        {[
-                          "cotton",
-                          "denim",
-                          "knit",
-                          "leather",
-                          "linen",
-                          "silk",
-                          "other",
-                        ].map((c) => (
-                          <option key={c}>{c}</option>
-                        ))}
-                      </select>
-                    </label>
-                  </div>
-                  <div className="select-row">
-                    <label>
-                      Style
-                      <select name="style">
-                        {styles.map((c) => (
-                          <option key={c}>{c}</option>
-                        ))}
-                      </select>
-                    </label>
-                    <label>
-                      Main garment color
-                      <input type="color" name="color" defaultValue="#8b927a" />
-                    </label>
-                  </div>
+                    <div className="select-row">
+                      <label className={uncertain("category")}>
+                        Category
+                        <select
+                          name="category"
+                          value={draft.category}
+                          onChange={(e) => editDraft("category", e.target.value)}
+                        >
+                          {["tops", "pants", "shoes", "jackets"].map((c) => (
+                            <option key={c}>{c}</option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className={uncertain("texture")}>
+                        Texture
+                        <select
+                          name="texture"
+                          value={draft.texture}
+                          onChange={(e) => editDraft("texture", e.target.value)}
+                        >
+                          {textures.map((c) => (
+                            <option key={c}>{c}</option>
+                          ))}
+                        </select>
+                      </label>
+                    </div>
+                    <div className="select-row">
+                      <label className={uncertain("style")}>
+                        Style
+                        <select
+                          name="style"
+                          value={draft.style}
+                          onChange={(e) => editDraft("style", e.target.value)}
+                        >
+                          {styles.map((c) => (
+                            <option key={c}>{c}</option>
+                          ))}
+                        </select>
+                      </label>
+                      <label>
+                        Main garment color
+                        <input
+                          type="color"
+                          name="color"
+                          value={draft.color}
+                          onChange={(e) => editDraft("color", e.target.value)}
+                        />
+                      </label>
+                    </div>
+                  </fieldset>
                 </>
               )}
-              <button className="button primary wide" disabled={busy}>
+              <button
+                className="button primary wide"
+                disabled={busy || analysis === "running"}
+              >
                 {busy
                   ? "Please wait…"
+                  : analysis === "running"
+                    ? "Detecting details…"
                   : modal === "auth"
                     ? register
                       ? "Create account"

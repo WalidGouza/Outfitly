@@ -59,3 +59,26 @@ def test_unreachable_service_is_unavailable():
 def test_rejected_image_is_a_client_error():
     with pytest.raises(ValueError):
         client(lambda request: httpx.Response(400)).image(b"jpeg")
+
+
+def test_label_batches_and_images_are_cached():
+    calls = []
+
+    def handler(request):
+        calls.append(request.url.path)
+        if request.url.path == "/embed/texts":
+            return httpx.Response(200, json={"embeddings": [[0.1] * 512] * len(json.loads(request.content)["texts"])})
+        return httpx.Response(200, json={"embedding": [0.1] * 512})
+
+    c = client(handler)
+    assert len(c.texts(("a", "b"))) == 2
+    c.texts(("a", "b"))
+    c.image(b"same-jpeg")
+    c.image(b"same-jpeg")
+    assert calls == ["/embed/texts", "/embed/image"]
+
+
+def test_mismatched_batch_is_unavailable():
+    c = client(lambda request: httpx.Response(200, json={"embeddings": [[0.1] * 512]}))
+    with pytest.raises(EmbeddingUnavailable):
+        c.texts(("a", "b"))

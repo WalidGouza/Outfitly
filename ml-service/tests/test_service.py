@@ -14,6 +14,7 @@ TOKEN = {"Authorization": "Bearer " + os.environ["ML_SERVICE_TOKEN"]}
 def client(monkeypatch):
     seen = []
     monkeypatch.setattr(main.clip, "embed", lambda value: seen.append(value) or [0.5] * 512)
+    monkeypatch.setattr(main.clip, "embed_many", lambda values: seen.extend(values) or [[0.5] * 512 for _ in values])
     with TestClient(main.app) as c:
         c.seen = seen
         yield c
@@ -38,6 +39,14 @@ def test_embeds_images_and_text(client):
     assert isinstance(client.seen[0], Image.Image)
     r = client.post("/embed/text", json={"text": "A Minimal fashion outfit"}, headers=TOKEN)
     assert r.status_code == 200 and client.seen[1] == "A Minimal fashion outfit"
+
+
+def test_embeds_text_batches(client):
+    r = client.post("/embed/texts", json={"texts": ["a photo of jeans", "a photo of a coat"]}, headers=TOKEN)
+    assert r.status_code == 200 and len(r.json()["embeddings"]) == 2
+    assert client.seen == ["a photo of jeans", "a photo of a coat"]
+    assert client.post("/embed/texts", json={"texts": []}, headers=TOKEN).status_code == 422
+    assert client.post("/embed/texts", json={"texts": ["x"]}).status_code == 401
 
 
 def test_rejects_invalid_and_oversized_images(client):

@@ -13,7 +13,11 @@ def model():
 
 
 def embed(value):
-    vector = model().encode(value, normalize_embeddings=True).tolist()
-    if len(vector) != DIMENSIONS:
+    return embed_many([value])[0]
+
+
+def embed_many(values):
+    vectors = model().encode(values, normalize_embeddings=True).tolist()
+    if any(len(v) != DIMENSIONS for v in vectors):
         raise ValueError(f"Configured model must output {DIMENSIONS} dimensions")
-    return vector
+    return vectors

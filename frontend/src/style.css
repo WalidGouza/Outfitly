@@ -1135,6 +1135,24 @@ dialog small {
   font-size: 10px;
   color: var(--muted);
 }
+.piece-details {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+  transition: opacity 0.2s;
+}
+.piece-details:disabled {
+  opacity: 0.55;
+}
+.uncertain select {
+  border-color: var(--accent);
+}
+.uncertain::after {
+  content: "Please check";
+  font-size: 9px;
+  color: var(--accent);
+}
 dialog .wide {
   display: flex;
   width: 100%;

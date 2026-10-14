@@ -8,3 +8,5 @@ dist/
 __pycache__/
 .pytest_cache/
 uploads/
+*.tsbuildinfo
+.claude/

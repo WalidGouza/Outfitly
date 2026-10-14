@@ -22,16 +22,27 @@ class EmbeddingClient:
         self.transport = transport
         # Generation queries come from a handful of fixed style prompts.
         self.text = lru_cache(maxsize=64)(self._text)
+        # Attribute labels are fixed, so they are embedded once per process.
+        self.texts = lru_cache(maxsize=8)(self._texts)
+        # Analyse-then-save sends the same normalised JPEG twice; embed it once.
+        self.image = lru_cache(maxsize=8)(self._image)
 
     @property
     def configured(self):
         return bool(self.url and self.token)
 
-    def image(self, jpeg: bytes):
-        return self._request("/embed/image", content=jpeg, headers={"Content-Type": "image/jpeg"})
+    def _image(self, jpeg: bytes):
+        data = self._request("/embed/image", content=jpeg, headers={"Content-Type": "image/jpeg"})
+        return self._vector(data.get("embedding"))
 
     def _text(self, value: str):
-        return self._request("/embed/text", json={"text": value})
+        return self._vector(self._request("/embed/text", json={"text": value}).get("embedding"))
+
+    def _texts(self, values: tuple[str, ...]):
+        vectors = self._request("/embed/texts", json={"texts": list(values)}).get("embeddings")
+        if not isinstance(vectors, list) or len(vectors) != len(values):
+            raise EmbeddingUnavailable("Image analysis service returned an invalid response")
+        return [self._vector(v) for v in vectors]
 
     def _request(self, path, headers=None, **body):
         if not self.configured:
@@ -53,9 +64,18 @@ class EmbeddingClient:
             # Never echo upstream bodies; they may contain internal details.
             raise EmbeddingUnavailable(f"Image analysis service returned HTTP {response.status_code}")
         try:
-            vector = response.json()["embedding"]
-            vector = [float(x) for x in vector]
-        except (ValueError, KeyError, TypeError):
+            data = response.json()
+        except ValueError:
+            raise EmbeddingUnavailable("Image analysis service returned an invalid response") from None
+        if not isinstance(data, dict):
+            raise EmbeddingUnavailable("Image analysis service returned an invalid response")
+        return data
+
+    @staticmethod
+    def _vector(value):
+        try:
+            vector = [float(x) for x in value]
+        except (ValueError, TypeError):
             raise EmbeddingUnavailable("Image analysis service returned an invalid response") from None
         if len(vector) != DIMENSIONS or not all(math.isfinite(x) for x in vector):
             raise EmbeddingUnavailable("Image analysis service returned an invalid embedding")

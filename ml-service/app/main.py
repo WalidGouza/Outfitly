@@ -7,6 +7,7 @@ from PIL import Image, ImageOps, UnidentifiedImageError
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from typing import Annotated
 from pydantic import BaseModel, Field
 from .config import settings
 from . import model as clip
@@ -71,3 +72,13 @@ class Text(BaseModel):
 @app.post("/embed/text", dependencies=[Depends(authorized)])
 async def embed_text(body: Text):
     return {"embedding": await run_in_threadpool(clip.embed, body.text)}
+
+
+class Texts(BaseModel):
+    texts: list[Annotated[str, Field(min_length=1, max_length=500)]] = Field(min_length=1, max_length=64)
+
+
+@app.post("/embed/texts", dependencies=[Depends(authorized)])
+async def embed_texts(body: Texts):
+    # Batch form, used for zero-shot attribute labels; one round trip instead of dozens.
+    return {"embeddings": await run_in_threadpool(clip.embed_many, body.texts)}
