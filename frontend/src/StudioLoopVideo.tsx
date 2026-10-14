@@ -1,4 +1,5 @@
-import { useEffect, useRef, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { Pause, Play } from "lucide-react";
 
 // The rendered motion piece from video/ (Remotion): sample pieces gather into an
 // outfit, swap to alternatives, and resolve into the logo. 8 s seamless loop.
@@ -16,46 +17,69 @@ export function StudioLoopVideo() {
   // is baked in, so each theme has its own render.
   const theme = useSyncExternalStore(subscribeTheme, currentTheme);
   const video = useRef<HTMLVideoElement>(null);
+  const onScreen = useRef(false);
+  // null = follow the reduced-motion setting; otherwise the viewer's explicit choice.
+  const [choice, setChoice] = useState<"play" | "pause" | null>(null);
+  const [playing, setPlaying] = useState(false);
 
   useEffect(() => {
     const el = video.current;
     if (!el) return;
     const reduced = window.matchMedia("(prefers-reduced-motion: reduce)");
-    let onScreen = false;
-    // Play only while visible and motion is welcome; otherwise the poster
-    // (identical to the loop's first frame) stays as a still illustration.
+    // Plays only while visible. Reduced motion means it starts paused on the poster
+    // (identical to the loop's first frame), but the viewer can still choose to play.
     const sync = () => {
-      if (onScreen && !reduced.matches) el.play().catch(() => {});
+      const wanted = choice ? choice === "play" : !reduced.matches;
+      if (onScreen.current && wanted) el.play().catch(() => {});
       else el.pause();
     };
     const observer = new IntersectionObserver(([entry]) => {
-      onScreen = entry.isIntersecting;
+      onScreen.current = entry.isIntersecting;
       sync();
     });
     observer.observe(el);
     reduced.addEventListener("change", sync);
+    sync();
     return () => {
       observer.disconnect();
       reduced.removeEventListener("change", sync);
     };
-  }, [theme]);
+  }, [theme, choice]);
 
   const src = `/video/studio-loop-${theme}`;
   return (
-    <video
-      key={theme}
-      ref={video}
-      className="board-video"
-      poster={`${src}.jpg`}
-      muted
-      loop
-      playsInline
-      preload="metadata"
-      disablePictureInPicture
-      aria-hidden="true"
-    >
-      <source src={`${src}.mp4`} type="video/mp4" />
-      <source src={`${src}.webm`} type="video/webm" />
-    </video>
+    <>
+      <video
+        key={theme}
+        ref={video}
+        className="board-video"
+        poster={`${src}.jpg`}
+        muted
+        loop
+        playsInline
+        preload="metadata"
+        disablePictureInPicture
+        aria-hidden="true"
+        onPlay={() => setPlaying(true)}
+        onPause={() => setPlaying(false)}
+      >
+        <source src={`${src}.mp4`} type="video/mp4" />
+        <source src={`${src}.webm`} type="video/webm" />
+      </video>
+      {/* Looping motion longer than 5 s needs a pause control (WCAG 2.2.2). */}
+      <button
+        type="button"
+        className="board-video-toggle"
+        aria-label={playing ? "Pause animation" : "Play animation"}
+        title={playing ? "Pause animation" : "Play animation"}
+        onClick={() => {
+          // A click means the board is on screen; respond at once.
+          onScreen.current = true;
+          setChoice(playing ? "pause" : "play");
+        }}
+      >
+        {playing ? <Pause size={14} /> : <Play size={14} />}
+      </button>
+    </>
   );
 }

@@ -526,6 +526,20 @@ h1 em {
   /* The render's background is the board colour, so cropping to fill is seamless. */
   object-fit: cover;
 }
+.board-video-toggle {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  color: var(--text);
+  box-shadow: 0 3px 12px #0000000f;
+}
 .board-piece {
   position: absolute;
   display: grid;
@@ -1267,6 +1281,9 @@ dialog .wide {
   }
   .cloth-card.anchored:hover {
     border-color: var(--accent);
+  }
+  .board-video-toggle:hover {
+    border-color: var(--faint);
   }
   .save-button:not(.is-saved):hover {
     border-color: var(--faint);
