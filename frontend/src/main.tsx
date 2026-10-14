@@ -25,6 +25,7 @@ import { motion, AnimatePresence, MotionConfig } from "motion/react";
 import { resolveApiUrl, requestJson } from "./api";
 import { validTheme, resolvedTheme, type Theme } from "./theme";
 import { Logo, LogoSymbol } from "./brand";
+import { StudioLoopVideo } from "./StudioLoopVideo";
 
 // Strong ease-out (matches --ease in style.css): fast start, gentle settle.
 const EASE_OUT = [0.23, 1, 0.32, 1] as const;
@@ -838,9 +839,15 @@ function App() {
                   </h2>
                   <div
                     className="wardrobe-board"
-                    aria-label="Pieces from your selected wardrobe"
+                    aria-label={
+                      demo
+                        ? "Sample pieces combining into outfits"
+                        : "Pieces from your selected wardrobe"
+                    }
                   >
-                    {(
+                    {/* Signed-out visitors see the motion piece; members see their own pieces. */}
+                    {demo && <StudioLoopVideo />}
+                    {!demo && (
                       ["tops", "pants", "shoes", "jackets"] as Category[]
                     ).flatMap((cat) => {
                       const piece =
@@ -858,15 +865,17 @@ function App() {
                           ]
                         : [];
                     })}
-                    {clothes.length === 0 && (
+                    {!demo && clothes.length === 0 && (
                       <div className="board-empty">
                         <Shirt size={40} />
                         <span>Add your first pieces</span>
                       </div>
                     )}
-                    <span className="board-label">
-                      FROM YOUR WARDROBE <ArrowUpRight size={14} />
-                    </span>
+                    {!demo && (
+                      <span className="board-label">
+                        FROM YOUR WARDROBE <ArrowUpRight size={14} />
+                      </span>
+                    )}
                   </div>
                   <p>
                     A few familiar pieces. A fresh way to put them together.
