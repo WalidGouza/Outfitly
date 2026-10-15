@@ -34,6 +34,7 @@ export default function Saved() {
   return (
     <SafeAreaView edges={["top"]} style={{ flex: 1, backgroundColor: t.page }}>
       <ScrollView
+        contentInsetAdjustmentBehavior="automatic"
         contentContainerStyle={styles.content}
         refreshControl={<RefreshControl refreshing={loading} onRefresh={refresh} tintColor={t.muted} />}
       >

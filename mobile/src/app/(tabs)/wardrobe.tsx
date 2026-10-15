@@ -10,6 +10,7 @@ import { useSession } from "@/session";
 import { useWardrobe } from "@/wardrobe";
 import { Button, Chip, PressableScale } from "@/components/Pressable";
 import { EmptyState, ErrorBanner, ScreenTitle, WardrobePill } from "@/components/ui";
+import { Glass } from "@/components/Glass";
 import { PieceArt } from "@/components/PieceArt";
 import { fadeOut, reflow } from "@/motion";
 import { radius, type, useTheme } from "@/theme";
@@ -61,34 +62,44 @@ export default function WardrobeScreen() {
   return (
     <SafeAreaView edges={["top"]} style={{ flex: 1, backgroundColor: t.page }}>
       <ScrollView
+        contentInsetAdjustmentBehavior="automatic"
         contentContainerStyle={styles.content}
         refreshControl={<RefreshControl refreshing={loading} onRefresh={refresh} tintColor={t.muted} />}
+        // The filter bar (child 1) sticks to the top; pieces scroll under its glass.
+        stickyHeaderIndices={[1]}
       >
-        <ScreenTitle
-          eyebrow="My wardrobe"
-          title="The pieces."
-          subtitle={demo ? "Sample pieces. Sign in to add your own." : "Hold a piece to remove it."}
-          action={
-            <PressableScale
-              accessibilityRole="button"
-              accessibilityLabel="Add a piece"
-              onPress={add}
-              style={[styles.addButton, { backgroundColor: t.ink }]}
-            >
-              <Ionicons name="add" size={26} color={t.onInk} />
-            </PressableScale>
-          }
-        />
-        <WardrobePill />
-        {error ? (
-          <View style={{ marginTop: 16 }}>
-            <ErrorBanner message={error} />
-          </View>
-        ) : null}
-        <View style={styles.filters}>
-          {(["all", ...categories] as const).map((c) => (
-            <Chip key={c} label={label(c)} selected={filter === c} onPress={() => setFilter(c)} />
-          ))}
+        {/* Child 0: title block. Child 1 (below): the sticky filter bar. */}
+        <View>
+          <ScreenTitle
+            eyebrow="My wardrobe"
+            title="The pieces."
+            subtitle={demo ? "Sample pieces. Sign in to add your own." : "Hold a piece to remove it."}
+            action={
+              <PressableScale
+                accessibilityRole="button"
+                accessibilityLabel="Add a piece"
+                onPress={add}
+                style={[styles.addButton, { backgroundColor: t.ink }]}
+              >
+                <Ionicons name="add" size={26} color={t.onInk} />
+              </PressableScale>
+            }
+          />
+          <WardrobePill />
+          {error ? (
+            <View style={{ marginTop: 16 }}>
+              <ErrorBanner message={error} />
+            </View>
+          ) : null}
+        </View>
+        <View style={styles.filterBar}>
+          <Glass style={styles.filterGlass}>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filters}>
+              {(["all", ...categories] as const).map((c) => (
+                <Chip key={c} onGlass label={label(c)} selected={filter === c} onPress={() => setFilter(c)} />
+              ))}
+            </ScrollView>
+          </Glass>
         </View>
 
         {visible.length ? (
@@ -140,7 +151,9 @@ export default function WardrobeScreen() {
 const styles = StyleSheet.create({
   content: { padding: 20, paddingBottom: 40 },
   addButton: { width: 48, height: 48, borderRadius: 24, alignItems: "center", justifyContent: "center" },
-  filters: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 18, marginBottom: 16 },
+  filterBar: { paddingTop: 14, paddingBottom: 12 },
+  filterGlass: { borderRadius: radius.pill, overflow: "hidden" },
+  filters: { flexDirection: "row", gap: 4, padding: 4 },
   grid: { flexDirection: "row", flexWrap: "wrap", gap: 12 },
   // Two columns: half the row minus half the 12 px gap.
   cell: { width: "48%", flexGrow: 1, maxWidth: "48.5%" },

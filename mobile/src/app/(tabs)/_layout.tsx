@@ -1,18 +1,14 @@
-import type { ColorValue } from "react-native";
 import { Redirect } from "expo-router";
-import { Tabs } from "expo-router/js-tabs";
-import Ionicons from "@expo/vector-icons/Ionicons";
+import { NativeTabs } from "expo-router/unstable-native-tabs";
 import { useSession } from "@/session";
 import { useWardrobe } from "@/wardrobe";
 import { font, useTheme } from "@/theme";
 
-type IconName = keyof typeof Ionicons.glyphMap;
-function icon(active: IconName, idle: IconName) {
-  return function TabIcon({ color, focused, size }: { color: ColorValue; focused: boolean; size: number }) {
-    return <Ionicons name={focused ? active : idle} color={color as string} size={size} />;
-  };
-}
-
+/**
+ * System tab bar: Liquid Glass on iOS 26 (it shrinks while scrolling down), the standard
+ * translucent bar on earlier iOS, and Material bottom navigation on Android.
+ * Icons are SF Symbols on iOS and Material Symbols on Android.
+ */
 export default function TabsLayout() {
   const t = useTheme();
   const { token, demo } = useSession();
@@ -21,32 +17,38 @@ export default function TabsLayout() {
   if (!token && !demo) return <Redirect href="/welcome" />;
 
   return (
-    <Tabs
-      screenOptions={{
-        headerShown: false,
-        tabBarActiveTintColor: t.text,
-        tabBarInactiveTintColor: t.faint,
-        tabBarStyle: { backgroundColor: t.page, borderTopColor: t.border },
-        tabBarLabelStyle: { fontFamily: font.medium, fontSize: 11 },
-        sceneStyle: { backgroundColor: t.page },
-      }}
+    <NativeTabs
+      tintColor={t.text}
+      iconColor={{ default: t.faint, selected: t.text }}
+      labelStyle={{ fontFamily: font.medium, fontSize: 11 }}
+      minimizeBehavior="onScrollDown"
+      // Coral badge with ink text (4.9:1): one of coral's few roles.
+      badgeBackgroundColor={t.accent}
+      badgeTextColor="#1E221D"
+      // Android: the bar sits on the page colour with a soft selection indicator.
+      backgroundColor={t.page}
+      indicatorColor={t.soft}
     >
-      <Tabs.Screen name="studio" options={{ title: "Studio", tabBarIcon: icon("sparkles", "sparkles-outline") }} />
-      <Tabs.Screen name="wardrobe" options={{ title: "Wardrobe", tabBarIcon: icon("shirt", "shirt-outline") }} />
-      <Tabs.Screen
-        name="saved"
-        options={{
-          title: "Saved",
-          tabBarIcon: icon("bookmark", "bookmark-outline"),
-          tabBarBadge: saved.length || undefined,
-          // The badge is one of coral's few roles: a small mark, ink text for contrast.
-          tabBarBadgeStyle: { backgroundColor: t.accent, color: "#1E221D", fontFamily: font.semibold },
-        }}
-      />
-      <Tabs.Screen
-        name="account"
-        options={{ title: "Account", tabBarIcon: icon("person-circle", "person-circle-outline") }}
-      />
-    </Tabs>
+      <NativeTabs.Trigger name="studio">
+        <NativeTabs.Trigger.Icon sf="sparkles" md="auto_awesome" />
+        <NativeTabs.Trigger.Label>Studio</NativeTabs.Trigger.Label>
+      </NativeTabs.Trigger>
+      <NativeTabs.Trigger name="wardrobe">
+        <NativeTabs.Trigger.Icon sf={{ default: "tshirt", selected: "tshirt.fill" }} md="checkroom" />
+        <NativeTabs.Trigger.Label>Wardrobe</NativeTabs.Trigger.Label>
+      </NativeTabs.Trigger>
+      <NativeTabs.Trigger name="saved">
+        <NativeTabs.Trigger.Icon sf={{ default: "bookmark", selected: "bookmark.fill" }} md="bookmark" />
+        <NativeTabs.Trigger.Label>Saved</NativeTabs.Trigger.Label>
+        <NativeTabs.Trigger.Badge hidden={!saved.length}>{String(saved.length)}</NativeTabs.Trigger.Badge>
+      </NativeTabs.Trigger>
+      <NativeTabs.Trigger name="account">
+        <NativeTabs.Trigger.Icon
+          sf={{ default: "person.crop.circle", selected: "person.crop.circle.fill" }}
+          md="account_circle"
+        />
+        <NativeTabs.Trigger.Label>Account</NativeTabs.Trigger.Label>
+      </NativeTabs.Trigger>
+    </NativeTabs>
   );
 }

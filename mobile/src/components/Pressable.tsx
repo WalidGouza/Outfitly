@@ -104,7 +104,18 @@ export function Button({ title, variant = "primary", busy, icon, style, disabled
 }
 
 /** Selection chip: a selection haptic, and no animation (chips are tapped constantly). */
-export function Chip({ label, selected, onPress }: { label: string; selected: boolean; onPress: () => void }) {
+export function Chip({
+  label,
+  selected,
+  onPress,
+  onGlass = false,
+}: {
+  label: string;
+  selected: boolean;
+  onPress: () => void;
+  /** On a glass bar, unselected chips drop their surface so the material shows through. */
+  onGlass?: boolean;
+}) {
   const t = useTheme();
   return (
     <PressableScale
@@ -116,7 +127,11 @@ export function Chip({ label, selected, onPress }: { label: string; selected: bo
       }}
       style={[
         styles.chip,
-        selected ? { backgroundColor: t.ink, borderColor: t.ink } : { backgroundColor: t.surface, borderColor: t.border },
+        selected
+          ? { backgroundColor: t.ink, borderColor: t.ink }
+          : onGlass
+            ? { backgroundColor: "transparent", borderColor: "transparent" }
+            : { backgroundColor: t.surface, borderColor: t.border },
       ]}
     >
       <Text style={[styles.chipText, { color: selected ? t.onInk : t.text }]}>{label}</Text>

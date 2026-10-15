@@ -9,6 +9,7 @@ import Animated from "react-native-reanimated";
 import { fadeIn } from "@/motion";
 import { categories, styles as styleNames, textures, type Category, type PhotoFile } from "@/api";
 import { useWardrobe } from "@/wardrobe";
+import { Glass } from "@/components/Glass";
 import { Button, Chip, PressableScale } from "@/components/Pressable";
 import { ErrorBanner } from "@/components/ui";
 import { font, radius, type, useTheme } from "@/theme";
@@ -151,11 +152,8 @@ export default function AddPiece() {
           >
             <Image source={{ uri: photo.uri }} style={StyleSheet.absoluteFill} contentFit="contain" transition={150} />
             {/* Re-keyed per state, so the status cross-fades instead of jumping. */}
-            <Animated.View
-              key={detecting ? "detecting" : (detected ?? "idle")}
-              entering={fadeIn}
-              style={[styles.status, { backgroundColor: t.surface }]}
-            >
+            <Animated.View key={detecting ? "detecting" : (detected ?? "idle")} entering={fadeIn} style={{ alignSelf: "flex-start" }}>
+              <Glass variant="clear" style={styles.status}>
               {detecting ? <ActivityIndicator size="small" color={t.text} /> : <Ionicons name="sparkles" size={14} color={t.text} />}
               <Text style={[type.caption, { color: t.text }]}>
                 {detecting
@@ -166,6 +164,7 @@ export default function AddPiece() {
                       ? "Colour detected. Choose the rest."
                       : "Tap to change photo"}
               </Text>
+              </Glass>
             </Animated.View>
           </PressableScale>
 
@@ -242,7 +241,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
-    alignSelf: "flex-start",
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderRadius: radius.pill,

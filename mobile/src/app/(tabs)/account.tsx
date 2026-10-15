@@ -26,7 +26,7 @@ export default function Account() {
   const group = [styles.group, { backgroundColor: t.surface, borderColor: t.border }];
   return (
     <SafeAreaView edges={["top"]} style={{ flex: 1, backgroundColor: t.page }}>
-      <ScrollView contentContainerStyle={styles.content}>
+      <ScrollView contentInsetAdjustmentBehavior="automatic" contentContainerStyle={styles.content}>
         <ScreenTitle eyebrow="Account" title={demo ? "Sample wardrobe" : "Your space"} />
 
         <View style={[group, styles.profile]}>

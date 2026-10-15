@@ -7,6 +7,7 @@ import type { Look } from "@/api";
 import { useWardrobe } from "@/wardrobe";
 import { fadeIn, fadeOut, settle } from "@/motion";
 import { radius, type, useTheme } from "@/theme";
+import { Glass } from "./Glass";
 import { PieceArt } from "./PieceArt";
 import { PressableScale } from "./Pressable";
 
@@ -43,17 +44,20 @@ export function WardrobePill() {
   const { wardrobes, wardrobeId } = useWardrobe();
   const current = wardrobes.find((w) => w.id === wardrobeId);
   return (
+    // An interactive glass capsule: a control, so it gets the material.
     <PressableScale
       accessibilityRole="button"
       accessibilityLabel={`Wardrobe: ${current?.name ?? "none"}. Change wardrobe`}
       onPress={() => router.push("/wardrobes")}
-      style={[styles.pill, { backgroundColor: t.surface, borderColor: t.border }]}
+      style={{ alignSelf: "flex-start" }}
     >
-      <Ionicons name="layers-outline" size={16} color={t.text} />
-      <Text numberOfLines={1} style={[type.callout, { color: t.text, maxWidth: 200 }]}>
-        {current?.name ?? (wardrobes.length ? "Choose a wardrobe" : "No wardrobe yet")}
-      </Text>
-      <Ionicons name="chevron-down" size={15} color={t.muted} />
+      <Glass interactive style={styles.pill}>
+        <Ionicons name="layers-outline" size={16} color={t.text} />
+        <Text numberOfLines={1} style={[type.callout, { color: t.text, maxWidth: 200 }]}>
+          {current?.name ?? (wardrobes.length ? "Choose a wardrobe" : "No wardrobe yet")}
+        </Text>
+        <Ionicons name="chevron-down" size={15} color={t.muted} />
+      </Glass>
     </PressableScale>
   );
 }
@@ -124,6 +128,27 @@ export function LookCard({
             <PieceArt piece={piece} rounded={12} />
           </View>
         ))}
+        {/* The save control floats on the outfit itself: glass over content. Once saved it
+            turns solid coral, since colour belongs on a solid layer, not in the glass. */}
+        <PressableScale
+          accessibilityRole="button"
+          accessibilityLabel={saved ? "Remove from saved outfits" : "Save outfit"}
+          accessibilityState={{ selected: saved }}
+          onPress={onToggle}
+          style={styles.saveFloat}
+        >
+          {saved ? (
+            <View style={[styles.saveButton, { backgroundColor: t.accent }]}>
+              <Animated.View style={popStyle}>
+                <Ionicons name="bookmark" size={19} color="#1E221D" />
+              </Animated.View>
+            </View>
+          ) : (
+            <Glass interactive variant="clear" style={styles.saveButton}>
+              <Ionicons name="bookmark-outline" size={19} color={t.text} />
+            </Glass>
+          )}
+        </PressableScale>
       </View>
       <View style={styles.cardFooter}>
         <View style={{ flex: 1, gap: 2 }}>
@@ -136,21 +161,6 @@ export function LookCard({
             {look.items.map((i) => i.name).join(" · ")}
           </Text>
         </View>
-        <PressableScale
-          accessibilityRole="button"
-          accessibilityLabel={saved ? "Remove from saved outfits" : "Save outfit"}
-          accessibilityState={{ selected: saved }}
-          onPress={onToggle}
-          // Saved state is one of the few places coral appears.
-          style={[
-            styles.saveButton,
-            saved ? { backgroundColor: t.accent, borderColor: t.accent } : { borderColor: t.border },
-          ]}
-        >
-          <Animated.View style={popStyle}>
-            <Ionicons name={saved ? "bookmark" : "bookmark-outline"} size={19} color={saved ? "#1E221D" : t.text} />
-          </Animated.View>
-        </PressableScale>
       </View>
     </View>
   );
@@ -162,11 +172,9 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
-    alignSelf: "flex-start",
     paddingHorizontal: 14,
     minHeight: 40,
     borderRadius: radius.pill,
-    borderWidth: StyleSheet.hairlineWidth,
   },
   empty: {
     alignItems: "center",
@@ -189,12 +197,6 @@ const styles = StyleSheet.create({
   flatLay: { flexDirection: "row", flexWrap: "wrap", padding: 8, gap: 8 },
   cell: { width: "48.5%", aspectRatio: 1 },
   cardFooter: { flexDirection: "row", alignItems: "center", gap: 12, padding: 16 },
-  saveButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    borderWidth: StyleSheet.hairlineWidth,
-    alignItems: "center",
-    justifyContent: "center",
-  },
+  saveFloat: { position: "absolute", top: 16, right: 16 },
+  saveButton: { width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center" },
 });
