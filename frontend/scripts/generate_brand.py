@@ -97,3 +97,69 @@ for target in (root / "frontend" / "src" / "brand.tsx", root / "video" / "src" /
     if target.parent.is_dir():
         target.write_text(src, encoding="utf-8")
 print("ok", len(src))
+
+
+# React Native (mobile/, Expo): same paths via react-native-svg. No CSS there, so the
+# ink colour is a prop: Wardrobe Ink on light backgrounds, Linen for the reversed logo.
+def rn_paths(items, indent):
+    lines = []
+    for role, d, tr, rule in items:
+        attrs = [f"fill={{{'ink' if role == 'ink' else 'CORAL'}}}"]
+        if rule:
+            attrs.append(f'fillRule="{rule}"')
+        if tr:
+            attrs.append(f'transform="{tr}"')
+        attrs.append(f'd="{d}"')
+        lines.append(f"{indent}<Path {' '.join(attrs)} />")
+    return "\n".join(lines)
+
+
+rn_src = f'''// Generated from brand/logo/final/*.svg (Neckline O identity) by
+// frontend/scripts/generate_brand.py — do not edit paths by hand.
+import Svg, {{ G, Path }} from "react-native-svg";
+
+const CORAL = "#E8644A";
+
+type LogoProps = {{
+  /** Wardrobe Ink on light backgrounds; Linen (#F6F2EA) for the reversed version. */
+  ink?: string;
+  height: number;
+  /** Empty string marks a decorative use, hidden from screen readers. */
+  title?: string;
+}};
+
+const a11y = (title: string) =>
+  title
+    ? {{ accessible: true, accessibilityRole: "image" as const, accessibilityLabel: title }}
+    : {{ accessibilityElementsHidden: true, importantForAccessibility: "no-hide-descendants" as const }};
+
+/** Horizontal lockup: symbol + wordmark. */
+export function Logo({{ ink = "#1E221D", height, title = "Outfitly" }}: LogoProps) {{
+  return (
+    <Svg viewBox="{hview}" height={{height}} width={{(height * {hview.split()[2]}) / {hview.split()[3]}}} {{...a11y(title)}}>
+      <G transform="{hgroup}">
+{rn_paths(symbol_items, "        ")}
+      </G>
+{rn_paths(word_items, "      ")}
+    </Svg>
+  );
+}}
+
+/** Symbol alone. `small` is the heavier, collar-less cut required below 32 px. */
+export function LogoSymbol({{ ink = "#1E221D", height, title = "Outfitly", small = false }}: LogoProps & {{ small?: boolean }}) {{
+  return (
+    <Svg viewBox="{sview}" height={{height}} width={{height}} {{...a11y(title)}}>
+      {{small ? (
+{rn_paths(smallitems, "        ")}
+      ) : (
+        <>
+{rn_paths(sitems, "          ")}
+        </>
+      )}}
+    </Svg>
+  );
+}}
+'''
+rn_target = root / "mobile" / "src" / "brand.tsx"
+if rn_target.parent.is_dir():
+    rn_target.write_text(rn_src, encoding="utf-8")

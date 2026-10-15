@@ -7,6 +7,7 @@ Outfitly organizes uploaded clothes into multiple wardrobes, matches outfits usi
 | Part | Folder | Hosting |
 |---|---|---|
 | Frontend (React/Vite) | `frontend/` | Vercel |
+| Mobile app (Expo / React Native) | `mobile/` | Expo Go for testing — see [mobile/README.md](mobile/README.md) |
 | Core API: accounts, wardrobes, outfits, matching, photo storage | `backend/` | Render (free tier, no PyTorch) |
 | ML service: CLIP image/text embeddings (PyTorch) | `ml-service/` | Modal (serverless, scales to zero, $30/month free credit) — see [ml-service/README.md](ml-service/README.md#hosting-on-modal) |
 | PostgreSQL/pgvector + private photos | – | Supabase |

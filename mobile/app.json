@@ -1,0 +1,61 @@
+{
+  "expo": {
+    "name": "Outfitly",
+    "slug": "outfitly",
+    "scheme": "outfitly",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "backgroundColor": "#F6F2EA",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "app.outfitly.mobile"
+    },
+    "android": {
+      "package": "app.outfitly.mobile",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#1E221D"
+      },
+      "predictiveBackGestureEnabled": false,
+      "permissions": [
+        "android.permission.RECORD_AUDIO"
+      ]
+    },
+    "web": {
+      "bundler": "metro",
+      "favicon": "./assets/favicon.ico"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      "expo-font",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/icon.png",
+          "imageWidth": 200,
+          "backgroundColor": "#1E221D"
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Outfitly uses your photos so you can add clothes to your wardrobe.",
+          "cameraPermission": "Outfitly uses the camera so you can photograph clothes for your wardrobe."
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "900fbbf9-bb9d-43a7-8589-d48ffc550428"
+      }
+    },
+    "owner": "walidgouza"
+  }
+}

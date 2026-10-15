@@ -26,6 +26,7 @@ import { resolveApiUrl, requestJson } from "./api";
 import { validTheme, resolvedTheme, type Theme } from "./theme";
 import { Logo, LogoSymbol } from "./brand";
 import { StudioLoopVideo } from "./StudioLoopVideo";
+import { Select } from "./Select";
 
 // Strong ease-out (matches --ease in style.css): fast start, gentle settle.
 const EASE_OUT = [0.23, 1, 0.32, 1] as const;
@@ -709,24 +710,27 @@ function App() {
                   : "My wardrobe"}
             </span>
             <span className="header-right">
-              <label className="theme-picker">
-                {theme === "dark" ? (
-                  <Moon size={15} />
-                ) : theme === "light" ? (
-                  <Sun size={15} />
-                ) : (
-                  <Monitor size={15} />
-                )}
-                <select
-                  aria-label="Appearance"
-                  value={theme}
-                  onChange={(e) => setTheme(e.target.value as Theme)}
-                >
-                  <option value="system">System</option>
-                  <option value="light">Light</option>
-                  <option value="dark">Dark</option>
-                </select>
-              </label>
+              <Select
+                className="theme-picker"
+                variant="inline"
+                ariaLabel="Appearance"
+                value={theme}
+                onChange={(v) => setTheme(v as Theme)}
+                icon={
+                  theme === "dark" ? (
+                    <Moon size={15} />
+                  ) : theme === "light" ? (
+                    <Sun size={15} />
+                  ) : (
+                    <Monitor size={15} />
+                  )
+                }
+                options={[
+                  { value: "system", label: "System" },
+                  { value: "light", label: "Light" },
+                  { value: "dark", label: "Dark" },
+                ]}
+              />
               <span className="status-dot" />
               {demo ? "Explore sample wardrobe" : "Personal wardrobe"}
               <button
@@ -781,27 +785,27 @@ function App() {
               </button>
             </div>
             <div className="workspace-strip">
-              <label className="collection-select">
-                <Layers3 size={17} />
-                <select
-                  aria-label="Current wardrobe"
-                  value={wid}
-                  onChange={(e) => setWid(e.target.value)}
-                >
-                  {!wardrobes.length && (
-                    <option value="">
-                      {catalog.loading
-                        ? "Loading wardrobes…"
-                        : "No wardrobes yet"}
-                    </option>
-                  )}
-                  {wardrobes.map((w) => (
-                    <option value={w.id} key={w.id}>
-                      {w.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
+              <Select
+                className="collection-select"
+                variant="inline"
+                ariaLabel="Current wardrobe"
+                value={wid}
+                onChange={setWid}
+                icon={<Layers3 size={17} />}
+                disabled={!wardrobes.length}
+                options={
+                  wardrobes.length
+                    ? wardrobes.map((w) => ({ value: w.id, label: w.name }))
+                    : [
+                        {
+                          value: "",
+                          label: catalog.loading
+                            ? "Loading wardrobes…"
+                            : "No wardrobes yet",
+                        },
+                      ]
+                }
+              />
               <div className="workspace-stats">
                 <span>
                   <strong>{clothes.length}</strong> pieces
@@ -914,33 +918,27 @@ function App() {
                     ))}
                   </div>
                   <div className="select-row">
-                    <label>
-                      Color direction
-                      <select
-                        value={harmony}
-                        onChange={(e) => setHarmony(e.target.value)}
-                      >
-                        <option value="balanced">A balanced palette</option>
-                        <option value="tonal">Soft & tonal</option>
-                        <option value="contrast">A little contrast</option>
-                      </select>
-                    </label>
-                    <label>
-                      Start with a piece
-                      <select
-                        value={anchor}
-                        onChange={(e) => setAnchor(e.target.value)}
-                      >
-                        <option value="">Surprise me</option>
-                        {clothes
+                    <Select
+                      label="Color direction"
+                      value={harmony}
+                      onChange={setHarmony}
+                      options={[
+                        { value: "balanced", label: "A balanced palette" },
+                        { value: "tonal", label: "Soft & tonal" },
+                        { value: "contrast", label: "A little contrast" },
+                      ]}
+                    />
+                    <Select
+                      label="Start with a piece"
+                      value={anchor}
+                      onChange={setAnchor}
+                      options={[
+                        { value: "", label: "Surprise me" },
+                        ...clothes
                           .filter((c) => jacket || c.category !== "jackets")
-                          .map((c) => (
-                            <option key={c.id} value={c.id}>
-                              {c.name}
-                            </option>
-                          ))}
-                      </select>
-                    </label>
+                          .map((c) => ({ value: c.id, label: c.name })),
+                      ]}
+                    />
                   </div>
                   <div className="generate-row">
                     <label className="toggle-label">
@@ -1410,44 +1408,34 @@ function App() {
                       />
                     </label>
                     <div className="select-row">
-                      <label className={uncertain("category")}>
-                        Category
-                        <select
-                          name="category"
-                          value={draft.category}
-                          onChange={(e) => editDraft("category", e.target.value)}
-                        >
-                          {["tops", "pants", "shoes", "jackets"].map((c) => (
-                            <option key={c}>{c}</option>
-                          ))}
-                        </select>
-                      </label>
-                      <label className={uncertain("texture")}>
-                        Texture
-                        <select
-                          name="texture"
-                          value={draft.texture}
-                          onChange={(e) => editDraft("texture", e.target.value)}
-                        >
-                          {textures.map((c) => (
-                            <option key={c}>{c}</option>
-                          ))}
-                        </select>
-                      </label>
+                      <Select
+                        className={uncertain("category")}
+                        label="Category"
+                        name="category"
+                        value={draft.category}
+                        onChange={(v) => editDraft("category", v)}
+                        options={["tops", "pants", "shoes", "jackets"].map(
+                          (c) => ({ value: c, label: c }),
+                        )}
+                      />
+                      <Select
+                        className={uncertain("texture")}
+                        label="Texture"
+                        name="texture"
+                        value={draft.texture}
+                        onChange={(v) => editDraft("texture", v)}
+                        options={textures.map((c) => ({ value: c, label: c }))}
+                      />
                     </div>
                     <div className="select-row">
-                      <label className={uncertain("style")}>
-                        Style
-                        <select
-                          name="style"
-                          value={draft.style}
-                          onChange={(e) => editDraft("style", e.target.value)}
-                        >
-                          {styles.map((c) => (
-                            <option key={c}>{c}</option>
-                          ))}
-                        </select>
-                      </label>
+                      <Select
+                        className={uncertain("style")}
+                        label="Style"
+                        name="style"
+                        value={draft.style}
+                        onChange={(v) => editDraft("style", v)}
+                        options={styles.map((c) => ({ value: c, label: c }))}
+                      />
                       <label>
                         Main garment color
                         <input
