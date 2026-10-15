@@ -35,6 +35,11 @@ class Settings(BaseSettings):
     ml_service_token: SecretStr = SecretStr("")
     ml_service_timeout: float = 90
     business_rules_json: str
+    # Outfit of the day: forecast source and weather rules (empty = built-in defaults, see weather.py).
+    weather_api_url: str = "https://api.open-meteo.com/v1/forecast"
+    weather_rules_json: str = ""
+    # Reverse geocoding for the place name shown with the forecast (OpenStreetMap Nominatim).
+    geocoder_url: str = "https://nominatim.openstreetmap.org/reverse"
     model_config = SettingsConfigDict(env_file=ENV_FILE, extra="ignore", hide_input_in_errors=True)
 
     _normalize_app_env = field_validator("app_env", mode="before")(parse_app_env)
@@ -113,6 +118,12 @@ class Settings(BaseSettings):
         return list(dict.fromkeys(origins))
 
     @property
+    def weather_rules(self):
+        from .weather import load_rules
+
+        return load_rules(self.weather_rules_json)
+
+    @property
     def rules(self):
         data = json.loads(self.business_rules_json)
         weights = data["weights"]
@@ -154,5 +165,6 @@ def settings():
     if len(s.jwt_secret) < 32 or s.jwt_secret.startswith("replace-"):
         raise ValueError("Set a strong JWT_SECRET in .env")
     s.rules
+    s.weather_rules
     s.cors_origins
     return s

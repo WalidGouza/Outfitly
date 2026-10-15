@@ -33,6 +33,23 @@ def texture_score(a, b, rules):
     )
 
 
+def score_combo(combo, semantic, rules):
+    """Match score (0-100) and its meaning/colour/fabric breakdown for one outfit."""
+    pairs = list(itertools.combinations(combo, 2))
+    parts = {
+        "semantic": sum(semantic[x.id] for x in combo) / len(combo),
+        "color": sum(color_score(a.color, b.color, rules) for a, b in pairs)
+        / len(pairs),
+        "texture": sum(texture_score(a.texture, b.texture, rules) for a, b in pairs)
+        / len(pairs),
+    }
+    score = sum(parts[k] * rules["weights"][k] for k in parts)
+    return {
+        "score": round(score * 100),
+        "breakdown": {k: round(v * 100) for k, v in parts.items()},
+    }
+
+
 def rank(pools, semantic, rules, limit=6, anchor=None):
     if any(not pools.get(c) for c in ("tops", "pants", "shoes")):
         return []
@@ -45,22 +62,7 @@ def rank(pools, semantic, rules, limit=6, anchor=None):
             break
         if anchor and anchor not in [x.id for x in combo]:
             continue
-        pairs = list(itertools.combinations(combo, 2))
-        parts = {
-            "semantic": sum(semantic[x.id] for x in combo) / len(combo),
-            "color": sum(color_score(a.color, b.color, rules) for a, b in pairs)
-            / len(pairs),
-            "texture": sum(texture_score(a.texture, b.texture, rules) for a, b in pairs)
-            / len(pairs),
-        }
-        score = sum(parts[k] * rules["weights"][k] for k in parts)
-        results.append(
-            {
-                "items": list(combo),
-                "score": round(score * 100),
-                "breakdown": {k: round(v * 100) for k, v in parts.items()},
-            }
-        )
+        results.append({"items": list(combo), **score_combo(combo, semantic, rules)})
     results.sort(key=lambda x: x["score"], reverse=True)
     # Greedy diversity avoids returning the same base outfit with only different jackets.
     selected = []

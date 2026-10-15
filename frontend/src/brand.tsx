@@ -1,6 +1,6 @@
 // Generated from brand/logo/final/*.svg (Neckline O identity) — do not edit paths by hand.
 // Colours come from CSS: .logo-ink is Wardrobe Ink on light themes and Linen on dark
-// (the reversed version), .logo-coral is always Collar Coral. See style.css.
+// (the reversed version), .logo-coral is always Collar Coral. See app.css.
 
 // An empty title marks a decorative use: hidden from assistive technology.
 type LogoProps = { className?: string; title?: string };

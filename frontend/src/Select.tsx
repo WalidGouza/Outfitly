@@ -7,7 +7,7 @@ import {
   type KeyboardEvent,
   type ReactNode,
 } from "react";
-import { Check, ChevronDown } from "lucide-react";
+import { Icon } from "./ui";
 
 export type SelectOption = { value: string; label: string };
 
@@ -181,7 +181,7 @@ export function Select({
         <span className="select-value" id={valueId}>
           {selected?.label ?? ""}
         </span>
-        <ChevronDown size={15} className="select-chevron" aria-hidden="true" />
+        <span className="select-chevron"><Icon name="down" /></span>
       </button>
       {name ? <input type="hidden" name={name} value={value} /> : null}
       {open ? (
@@ -208,7 +208,7 @@ export function Select({
               onClick={() => choose(index)}
             >
               <span>{option.label}</span>
-              {option.value === value ? <Check size={15} aria-hidden="true" /> : null}
+              {option.value === value ? <Icon name="check" /> : null}
             </li>
           ))}
         </ul>

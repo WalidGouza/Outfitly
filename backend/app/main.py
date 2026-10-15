@@ -5,6 +5,8 @@ from pathlib import Path
 from typing import Literal
 import warnings
 import logging
+import math
+from types import SimpleNamespace
 import jwt
 from PIL import Image, ImageOps, UnidentifiedImageError
 from pwdlib import PasswordHash
@@ -20,10 +22,11 @@ from .config import settings
 from .database import make_engine
 from .models import Base, User, Wardrobe, Cloth, Outfit
 from .embeddings import EmbeddingClient, EmbeddingUnavailable
-from .matching import rank
+from .matching import rank, score_combo
 from . import attributes
 from .storage import ImageStorage, StorageUnavailable
 from .run import api_options
+from . import weather
 
 Image.MAX_IMAGE_PIXELS = 16_000_000
 s = settings()
@@ -429,9 +432,134 @@ def saved(wid: str, u=Depends(user), session=Depends(db)):
                     "name": o.name,
                     "style": o.style,
                     "items": [cloth_json(c) for c in items],
+                    **saved_score(items, o.style),
                 }
             )
     return looks
+
+
+def saved_score(items, style):
+    """Scores a saved outfit the way generation did (balanced colours, no anchor).
+
+    The meaning part needs the ML service; when it is down the outfit is listed without a score.
+    """
+    try:
+        semantic = similarity(items, f"A {style} fashion outfit with coordinated textures")
+    except EmbeddingUnavailable:
+        return {}
+    return score_combo(items, semantic, s.rules)
+
+
+def similarity(items, text_query):
+    """Cosine similarity (0-1) of each piece to a text query; raises EmbeddingUnavailable."""
+    query = embeddings.text(text_query)
+    norm = math.sqrt(sum(x * x for x in query)) or 1
+    semantic = {}
+    for c in items:
+        vector = [float(x) for x in c.embedding]
+        length = math.sqrt(sum(x * x for x in vector)) or 1
+        semantic[c.id] = max(0, min(1, sum(a * b for a, b in zip(query, vector)) / (norm * length)))
+    return semantic
+
+
+# ── Outfit of the day, from the weather ─────────────────────────────────────
+Style = Literal["Everyday", "Minimal", "Smart casual", "Streetwear", "Evening"]
+WEIGHT_OF_WEATHER = 0.35
+
+
+class Place(BaseModel):
+    latitude: float = Field(ge=-90, le=90)
+    longitude: float = Field(ge=-180, le=180)
+    style: Style = "Everyday"
+
+
+class SamplePiece(BaseModel):
+    id: str = Field(max_length=40)
+    name: str = Field(max_length=80)
+    category: Literal["tops", "pants", "shoes", "jackets"]
+    color: str = Field(pattern=r"^#[0-9a-fA-F]{6}$")
+    texture: Literal["cotton", "denim", "knit", "leather", "linen", "silk", "other"]
+    style: Style = "Everyday"
+
+
+class SamplePlace(Place):
+    pieces: list[SamplePiece] = Field(max_length=40)
+
+
+def forecast_for(place):
+    try:
+        w = weather.fetch_forecast(place.latitude, place.longitude, url=s.weather_api_url)
+    except weather.WeatherUnavailable as exc:
+        raise HTTPException(503, str(exc)) from None
+    return {
+        **w,
+        # The exact (rounded to ~1 km) point the forecast is for, shown next to the place name.
+        "latitude": round(place.latitude, 2),
+        "longitude": round(place.longitude, 2),
+        "place": weather.place_name(place.latitude, place.longitude, w.get("timezone", ""), url=s.geocoder_url),
+    }
+
+
+def weather_looks(pieces, semantic, plan, w, limit=6):
+    """Best outfits for today's weather from these pieces, best first."""
+    fits = {c.id: weather.fit(c, plan) for c in pieces}
+    categories = ["tops", "pants", "shoes"] + (["jackets"] if weather.wants_layer(plan, w) else [])
+    pools = {}
+    for category in categories:
+        ranked = sorted(
+            (c for c in pieces if c.category == category),
+            key=lambda c: (fits[c.id], semantic[c.id]),
+            reverse=True,
+        )
+        # Pieces the weather rules out are only used when nothing else fits.
+        suitable = [c for c in ranked if fits[c.id] >= 0.3] or ranked[:1]
+        if suitable:
+            pools[category] = suitable[: s.rules["max_candidates"]]
+    results = rank(pools, semantic, s.rules, limit=limit * 4)
+    looks = []
+    for r in results:
+        fit = sum(fits[c.id] for c in r["items"]) / len(r["items"])
+        score = round((1 - WEIGHT_OF_WEATHER) * r["score"] + WEIGHT_OF_WEATHER * fit * 100)
+        looks.append({**r, "score": score, "breakdown": {**r["breakdown"], "weather": round(fit * 100)}})
+    looks.sort(key=lambda r: r["score"], reverse=True)
+    return looks[:limit]
+
+
+def today_response(pieces, semantic, place, w, plan):
+    return {
+        "weather": w,
+        "advice": plan["notes"],
+        "layer": plan["layer"],
+        "looks": [
+            {**look, "items": [cloth_json(c) for c in look["items"]], "style": place.style}
+            for look in weather_looks(pieces, semantic, plan, w)
+        ],
+        "missing": weather.missing(pieces, plan, w),
+    }
+
+
+@app.post("/wardrobes/{wid}/today")
+def today(wid: str, place: Place, u=Depends(user), session=Depends(db)):
+    owned(wid, u, session)
+    w = forecast_for(place)
+    plan = weather.plan(w, s.weather_rules)
+    pieces = list(session.scalars(select(Cloth).where(Cloth.wardrobe_id == wid)))
+    try:
+        semantic = similarity(pieces, weather.query(place.style, w, plan))
+    except EmbeddingUnavailable:
+        # Weather and colour still pick a good outfit while the ML service is down.
+        semantic = {c.id: 0.75 for c in pieces}
+    return today_response(pieces, semantic, place, w, plan)
+
+
+@app.post("/today/sample")
+def today_sample(place: SamplePlace):
+    """The same weather pick for the signed-out sample wardrobe (no photos, no embeddings)."""
+    w = forecast_for(place)
+    plan = weather.plan(w, s.weather_rules)
+    pieces = [SimpleNamespace(**p.model_dump(), image=None) for p in place.pieces]
+    semantic = {p.id: 0.72 + (0.2 if p.style == place.style else 0) for p in pieces}
+    return today_response(pieces, semantic, place, w, plan)
 
 
 @app.delete("/wardrobes/{wid}/outfits/{oid}")

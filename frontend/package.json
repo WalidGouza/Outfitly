@@ -10,8 +10,6 @@
     "test": "node --import tsx --test src/*.test.mjs"
   },
   "dependencies": {
-    "lucide-react": "^0.468.0",
-    "motion": "^14.1.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { Pause, Play } from "lucide-react";
+import { Icon } from "./ui";
 
 // The rendered motion piece from video/ (Remotion): sample pieces gather into an
 // outfit, swap to alternatives, and resolve into the logo. 8 s seamless loop.
@@ -78,7 +78,7 @@ export function StudioLoopVideo() {
           setChoice(playing ? "pause" : "play");
         }}
       >
-        {playing ? <Pause size={14} /> : <Play size={14} />}
+        <Icon name={playing ? "pause" : "play"} filled />
       </button>
     </>
   );
