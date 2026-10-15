@@ -83,7 +83,7 @@ def load_rules(raw: str = ""):
 
 def fetch_forecast(latitude: float, longitude: float, transport=None, url: str = OPEN_METEO):
     # ~1 km precision is plenty for weather and keeps the exact position off the wire.
-    return _fetch(latitude, longitude, date.today().isoformat(), transport, url)
+    return _fetch(round(latitude, 2), round(longitude, 2), date.today().isoformat(), transport, url)
 
 
 @lru_cache(maxsize=256)
