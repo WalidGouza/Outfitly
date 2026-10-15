@@ -83,7 +83,7 @@ def test_analyze_endpoint_suggests_all_fields(api, monkeypatch):
     assert r.status_code == 200
     body = r.json()
     assert body["detected"] and body["name"] == "Navy sweater"
-    assert (body["category"], body["texture"], body["style"]) == ("tops", "knit", "Minimal")
+    assert (body["category"], body["garment"], body["texture"], body["style"]) == ("tops", "sweater", "knit", "Minimal")
     assert attributes.color_name(body["color"]) == "Navy"
 
 
@@ -95,7 +95,7 @@ def test_analyze_without_ml_service_still_detects_color(api, monkeypatch):
     r = api.post("/wardrobes/w/clothes/analyze", files={"image": ("top.png", jpeg_bytes(), "image/png")})
     assert r.status_code == 200
     body = r.json()
-    assert not body["detected"] and body["category"] is None and body["name"] == "Navy piece"
+    assert not body["detected"] and body["category"] is None and body["garment"] is None and body["name"] == "Navy piece"
 
 
 def test_analyze_rejects_non_images(api):

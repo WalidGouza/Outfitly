@@ -119,6 +119,14 @@ def _labels():
     return garments, tuple(p for *_, p in garments) + tuple(TEXTURES.values()) + tuple(STYLES.values())
 
 
+def garment_for(image_vector, label_vectors, category):
+    """The most likely garment type within a known category (for pieces saved before types existed)."""
+    garments, _ = _labels()
+    garment_p = _probabilities(image_vector, label_vectors[: len(garments)])
+    candidates = [(p, g) for (c, g, _), p in zip(garments, garment_p) if c == category]
+    return max(candidates)[1] if candidates else None
+
+
 def classify(image_vector, label_vectors):
     """Zero-shot category/type, texture and style with confidences in [0, 1]."""
     garments, _ = _labels()
@@ -164,7 +172,7 @@ def suggest(im: Image.Image, jpeg: bytes, embeddings):
     return {
         "name": piece_name(color, result["garment"], result["texture"]),
         "color": color,
-        **{k: result[k] for k in ("category", "texture", "style", "confidence")},
+        **{k: result[k] for k in ("category", "garment", "texture", "style", "confidence")},
         "detected": True,
     }
 
@@ -176,6 +184,7 @@ def suggest_color_only(im: Image.Image):
         "name": piece_name(color, None, None),
         "color": color,
         "category": None,
+        "garment": None,
         "texture": None,
         "style": None,
         "confidence": {},

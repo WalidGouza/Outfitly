@@ -18,7 +18,7 @@ import {
   roleOf,
   type ToastData,
 } from "./ui";
-import { categories, styles, textures, type Category, type Look, type MissingPiece, type Piece, type Store, type Weather } from "./store";
+import { categories, garmentTypes, styles, textures, type Category, type Look, type MissingPiece, type Piece, type Store, type Weather } from "./store";
 
 export type Route =
   | { name: "home" | "today" | "wardrobe" | "studio" | "saved" }
@@ -539,7 +539,10 @@ export function PieceDetail({ app, id }: { app: App; id: string }) {
             <PieceArt piece={piece} label />
           </div>
           <div className="detail__info">
-            <span className="chip">{category?.one ?? piece.category}</span>
+            <span className="chip">
+              {category?.one ?? piece.category}
+              {piece.garment ? ` · ${capital(piece.garment)}` : ""}
+            </span>
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               <h1 className="t-large">{piece.name}</h1>
               <span className="color-label" style={{ gap: 10 }}>
@@ -909,8 +912,10 @@ export function Saved({ app }: { app: App }) {
 }
 
 // ── Add a piece: photo in, details filled in ───────────────────────────────
-type Draft = { name: string; category: Category; texture: string; style: string; color: string };
-const blank: Draft = { name: "", category: "tops", texture: "cotton", style: "Everyday", color: "#8b927a" };
+type Draft = { name: string; category: Category; garment: string; texture: string; style: string; color: string };
+const blank: Draft = { name: "", category: "tops", garment: "", texture: "cotton", style: "Everyday", color: "#8b927a" };
+// A type only makes sense within its category ("shorts" is never a top).
+const fitType = (d: Draft): Draft => (garmentTypes[d.category].includes(d.garment) ? d : { ...d, garment: "" });
 
 export function AddPiece({ app, open, onClose }: { app: App; open: boolean; onClose: () => void }) {
   const { store } = app;
@@ -969,7 +974,7 @@ export function AddPiece({ app, open, onClose }: { app: App; open: boolean; onCl
           const value = found[key as keyof typeof found];
           if (typeof value === "string" && value && !edited.current.has(key)) (merged as Record<string, string>)[key] = value;
         }
-        return merged;
+        return fitType(merged);
       });
       if (found.color && !edited.current.has("color")) setDetected(found.color);
       setPhase(found.detected ? "done" : "partial");
@@ -1057,7 +1062,10 @@ export function AddPiece({ app, open, onClose }: { app: App; open: boolean; onCl
             radio
             className="seg--lg"
             value={draft.category}
-            onChange={(v) => edit("category", v)}
+            onChange={(v) => {
+              edited.current.add("category");
+              setDraft((d) => fitType({ ...d, category: v }));
+            }}
             options={categories.map((c) => ({ value: c.key, label: c.one }))}
           />
         </div>
@@ -1071,12 +1079,23 @@ export function AddPiece({ app, open, onClose }: { app: App; open: boolean; onCl
           </label>
           {(
             [
+              [
+                "Type",
+                draft.garment,
+                (v: string) => edit("garment", v),
+                [{ value: "", label: "Not sure" }, ...garmentTypes[draft.category].map((t) => ({ value: t, label: capital(t) }))],
+                "40%",
+              ],
               ["Fabric", draft.texture, (v: string) => edit("texture", v), textures.map((t) => ({ value: t, label: capital(t) })), "46%"],
               ["Style", draft.style, (v: string) => edit("style", v), styles.map((t) => ({ value: t, label: t })), "50%"],
               ["Wardrobe", target, setTarget, store.wardrobes.map((w) => ({ value: w.id, label: w.name })), "64%"],
             ] as const
           ).map(([label, value, onChange, options, width], i) => (
-            <div key={label} className={`fill-select${reading && label !== "Wardrobe" ? " is-pending" : ""}`} style={{ ["--d" as string]: `${(i + 1) * 70}ms`, ["--sk" as string]: width }}>
+            <div
+              key={label}
+              className={`fill-select${reading && label !== "Wardrobe" ? " is-pending" : ""}`}
+              style={{ ["--d" as string]: `${(i + 1) * 70}ms`, ["--sk" as string]: width, ...(label === "Wardrobe" ? { gridColumn: "1 / -1" } : {}) }}
+            >
               <Select label={label} className="field" value={value} onChange={onChange} options={[...options]} />
             </div>
           ))}

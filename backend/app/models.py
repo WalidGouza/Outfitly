@@ -35,6 +35,9 @@ class Cloth(Base):
     texture: Mapped[str] = mapped_column(String)
     style: Mapped[str] = mapped_column(String)
     color: Mapped[str] = mapped_column(String)
+    # Garment type within the category ("hoodie", "shorts"; see attributes.GARMENTS).
+    # Optional: pieces added before types existed have none.
+    garment: Mapped[str | None] = mapped_column(String, nullable=True)
     image: Mapped[str] = mapped_column(String)
     embedding: Mapped[list] = mapped_column(Vector(512))
     __table_args__ = (

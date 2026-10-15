@@ -83,7 +83,7 @@ def load_rules(raw: str = ""):
 
 def fetch_forecast(latitude: float, longitude: float, transport=None, url: str = OPEN_METEO):
     # ~1 km precision is plenty for weather and keeps the exact position off the wire.
-    return _fetch(round(latitude, 2), round(longitude, 2), date.today().isoformat(), transport, url)
+    return _fetch(latitude, longitude, date.today().isoformat(), transport, url)
 
 
 @lru_cache(maxsize=256)
@@ -208,11 +208,23 @@ def _has(text, words):
     return re.search(r"\b(" + "|".join(words) + r")", text) is not None
 
 
+# What each garment type is good for. The type is the reliable signal; the name is a fallback
+# for pieces without one (added before types existed, or renamed by the user).
+GARMENT_TAGS = {
+    "t-shirt": {"breathable"}, "polo shirt": {"breathable"}, "tank top": {"breathable", "summer"},
+    "sweater": {"warm"}, "hoodie": {"warm"}, "sweatshirt": {"warm"},
+    "shorts": {"breathable", "summer"}, "skirt": {"breathable"},
+    "boots": {"boots", "warm"}, "sandals": {"summer_shoes", "summer"},
+    "coat": {"heavy", "warm", "windproof"}, "puffer jacket": {"heavy", "warm", "windproof"},
+    "jacket": {"windproof"}, "blazer": {"windproof"}, "cardigan": {"warm"},
+}
+
+
 def tags(piece):
-    """What a piece is good for, read from its name, category and fabric."""
+    """What a piece is good for, read from its garment type, then its name, category and fabric."""
     name = (piece.name or "").lower()
     texture, category = piece.texture, piece.category
-    t = set()
+    t = set(GARMENT_TAGS.get(getattr(piece, "garment", None) or "", ()))
     if category == "jackets":
         if _has(name, ["coat", "parka", "puffer", "down", "peacoat", "overcoat", "shearling", "duffle", "quilted", "padded", "wool"]):
             t |= {"heavy", "warm", "windproof"}

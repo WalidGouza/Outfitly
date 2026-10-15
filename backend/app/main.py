@@ -52,6 +52,9 @@ async def lifespan(app):
         conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
     Base.metadata.create_all(engine)
     with engine.begin() as conn:
+        # create_all never adds columns to an existing table: migrate databases from before garment types.
+        conn.execute(text("ALTER TABLE public.clothes ADD COLUMN IF NOT EXISTS garment VARCHAR"))
+    with engine.begin() as conn:
         for table in Base.metadata.sorted_tables:
             # Browser access must pass through FastAPI authorization. No Data API policies.
             conn.execute(
@@ -126,8 +129,8 @@ def owned(wid, u, session):
 
 def cloth_json(c):
     return {
-        k: getattr(c, k)
-        for k in ("id", "name", "category", "texture", "style", "color", "image")
+        k: getattr(c, k, None)
+        for k in ("id", "name", "category", "garment", "texture", "style", "color", "image")
     }
 
 
@@ -249,11 +252,15 @@ def upload(
         "Everyday", "Minimal", "Smart casual", "Streetwear", "Evening"
     ] = Form(),
     color: str = Form(pattern=r"^#[0-9a-fA-F]{6}$"),
+    garment: str = Form("", max_length=40),
     image: UploadFile = File(),
     u=Depends(user),
     session=Depends(db),
 ):
     owned(wid, u, session)
+    garment = garment.strip().lower() or None
+    if garment and garment not in attributes.GARMENTS[category]:
+        raise HTTPException(422, f"Choose a type of {category} from the list")
     _, jpeg = load_image(image)
     try:
         vector = embeddings.image(jpeg)
@@ -267,6 +274,7 @@ def upload(
         texture=texture,
         style=style,
         color=color,
+        garment=garment,
         image=filename,
         embedding=vector,
     )
@@ -336,46 +344,33 @@ class Generate(BaseModel):
 @app.post("/wardrobes/{wid}/generate")
 def generate(wid: str, body: Generate, u=Depends(user), session=Depends(db)):
     owned(wid, u, session)
-    query = embeddings.text(f"A {body.style} fashion outfit with coordinated textures")
+    style_text = f"A {body.style} fashion outfit with coordinated textures"
+    query = embeddings.text(style_text)
     anchor = None
     if body.anchor_id:
         anchor = session.get(Cloth, body.anchor_id)
         if not anchor or anchor.wardrobe_id != wid:
             raise HTTPException(404, "Selected piece not found")
+        if anchor.category == "jackets" and not body.include_jacket:
+            raise HTTPException(400, "Enable jackets to use this selected piece")
+        # The starting piece only steers which candidates are considered...
         query = [(a + b) / 2 for a, b in zip(query, anchor.embedding)]
     pools = {}
-    semantic = {}
     for category in ["tops", "pants", "shoes"] + (
         ["jackets"] if body.include_jacket else []
     ):
-        distance = Cloth.embedding.cosine_distance(query)
-        rows = session.execute(
-            select(Cloth, distance)
+        rows = session.scalars(
+            select(Cloth)
             .where(Cloth.wardrobe_id == wid, Cloth.category == category)
-            .order_by(distance)
+            .order_by(Cloth.embedding.cosine_distance(query))
             .limit(s.rules["max_candidates"])
         ).all()
-        pools[category] = [c for c, d in rows]
-        for c, d in rows:
-            semantic[c.id] = max(0, min(1, 1 - float(d)))
+        pools[category] = list(rows)
     if anchor:
-        if anchor.category == "jackets" and not body.include_jacket:
-            raise HTTPException(400, "Enable jackets to use this selected piece")
         pools[anchor.category] = [anchor]
-        semantic[anchor.id] = max(
-            0,
-            min(
-                1,
-                1
-                - float(
-                    session.scalar(
-                        select(Cloth.embedding.cosine_distance(query)).where(
-                            Cloth.id == anchor.id
-                        )
-                    )
-                ),
-            ),
-        )
+    # ...while Meaning is always measured against the style alone, so an outfit scores the
+    # same with or without a starting piece (and the same as when it is saved).
+    semantic = similarity([c for pool in pools.values() for c in pool], style_text)
     rules = dict(s.rules)
     if body.harmony == "tonal":
         rules["complementary_tolerance"] = -1
@@ -480,6 +475,7 @@ class SamplePiece(BaseModel):
     color: str = Field(pattern=r"^#[0-9a-fA-F]{6}$")
     texture: Literal["cotton", "denim", "knit", "leather", "linen", "silk", "other"]
     style: Style = "Everyday"
+    garment: str | None = Field(None, max_length=40)
 
 
 class SamplePlace(Place):
@@ -557,7 +553,13 @@ def today_sample(place: SamplePlace):
     """The same weather pick for the signed-out sample wardrobe (no photos, no embeddings)."""
     w = forecast_for(place)
     plan = weather.plan(w, s.weather_rules)
-    pieces = [SimpleNamespace(**p.model_dump(), image=None) for p in place.pieces]
+    pieces = [
+        SimpleNamespace(
+            **{**p.model_dump(), "garment": p.garment if p.garment in attributes.GARMENTS[p.category] else None},
+            image=None,
+        )
+        for p in place.pieces
+    ]
     semantic = {p.id: 0.72 + (0.2 if p.style == place.style else 0) for p in pieces}
     return today_response(pieces, semantic, place, w, plan)
 

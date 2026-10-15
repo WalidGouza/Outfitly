@@ -11,6 +11,8 @@ export type Piece = {
   color: string;
   texture: string;
   style: string;
+  /** Type within the category ("hoodie", "shorts"); null for pieces added before types existed. */
+  garment?: string | null;
   image?: string | null;
 };
 export type Breakdown = { semantic: number; color: number; texture: number; weather?: number };
@@ -44,6 +46,7 @@ export type Suggestion = {
   name: string;
   color: string;
   category: Category | null;
+  garment: string | null;
   texture: string | null;
   style: string | null;
   detected: boolean;
@@ -57,6 +60,13 @@ export const categories: { key: Category; label: string; one: string; role: stri
   { key: "shoes", label: "Shoes", one: "Shoes", role: "Shoes" },
   { key: "jackets", label: "Jackets", one: "Jacket", role: "Jacket" },
 ];
+// Mirrors GARMENTS in backend/app/attributes.py: what photo detection can recognise.
+export const garmentTypes: Record<Category, string[]> = {
+  tops: ["t-shirt", "shirt", "blouse", "polo shirt", "sweater", "hoodie", "sweatshirt", "tank top"],
+  pants: ["jeans", "trousers", "chinos", "shorts", "skirt", "joggers", "leggings"],
+  shoes: ["sneakers", "boots", "loafers", "sandals", "heels", "dress shoes"],
+  jackets: ["jacket", "coat", "blazer", "cardigan", "puffer jacket"],
+};
 export const textures = ["cotton", "denim", "knit", "leather", "linen", "silk", "other"];
 export const styles = ["Everyday", "Minimal", "Smart casual", "Streetwear", "Evening"];
 
@@ -70,18 +80,18 @@ export const TOKEN_KEY = "atelier-token";
 // Sample wardrobe for visitors who have not signed in (see useWardrobeCatalog's sampleWardrobes).
 const sample: Piece[] = (
   [
-    ["s1", "Beige merino crew", "tops", "#D8C7A8", "knit", "Minimal"],
-    ["s2", "Cream oxford shirt", "tops", "#EEE7D7", "cotton", "Smart casual"],
-    ["s3", "Sage cotton tee", "tops", "#A9B49B", "cotton", "Everyday"],
-    ["s4", "Navy chinos", "pants", "#1F2A4A", "cotton", "Smart casual"],
-    ["s5", "Blue denim jeans", "pants", "#3E5C8C", "denim", "Everyday"],
-    ["s6", "Khaki chinos", "pants", "#AFA277", "cotton", "Minimal"],
-    ["s7", "White leather sneakers", "shoes", "#FBF9F4", "leather", "Everyday"],
-    ["s8", "Brown suede loafers", "shoes", "#7A5235", "leather", "Smart casual"],
-    ["s9", "Olive overshirt", "jackets", "#6B6A43", "cotton", "Everyday"],
-    ["s10", "Navy blazer", "jackets", "#27324A", "other", "Smart casual"],
+    ["s1", "Beige merino crew", "tops", "#D8C7A8", "knit", "Minimal", "sweater"],
+    ["s2", "Cream oxford shirt", "tops", "#EEE7D7", "cotton", "Smart casual", "shirt"],
+    ["s3", "Sage cotton tee", "tops", "#A9B49B", "cotton", "Everyday", "t-shirt"],
+    ["s4", "Navy chinos", "pants", "#1F2A4A", "cotton", "Smart casual", "chinos"],
+    ["s5", "Blue denim jeans", "pants", "#3E5C8C", "denim", "Everyday", "jeans"],
+    ["s6", "Khaki chinos", "pants", "#AFA277", "cotton", "Minimal", "chinos"],
+    ["s7", "White leather sneakers", "shoes", "#FBF9F4", "leather", "Everyday", "sneakers"],
+    ["s8", "Brown suede loafers", "shoes", "#7A5235", "leather", "Smart casual", "loafers"],
+    ["s9", "Olive overshirt", "jackets", "#6B6A43", "cotton", "Everyday", "jacket"],
+    ["s10", "Navy blazer", "jackets", "#27324A", "other", "Smart casual", "blazer"],
   ] as const
-).map(([id, name, category, color, texture, style]) => ({ id, name, category, color, texture, style }));
+).map(([id, name, category, color, texture, style, garment]) => ({ id, name, category, color, texture, style, garment }));
 const sampleFor = (wid: string) =>
   wid === "travel" ? sample.filter((p) => ["s1", "s3", "s5", "s7", "s9"].includes(p.id)) : sample;
 
@@ -236,7 +246,7 @@ export function useWardrobeStore(token: string, onExpired: () => void) {
   const addPiece = useCallback(
     async (file: File, fields: Omit<Piece, "id" | "image">, target = wid) => {
       const body = new FormData();
-      for (const [k, v] of Object.entries(fields)) body.append(k, v);
+      for (const [k, v] of Object.entries(fields)) body.append(k, v ?? "");
       body.append("image", file);
       const piece = await call<Piece>(`/wardrobes/${target}/clothes`, "POST", body);
       if (target === wid) setPieces((list) => [...list, piece]);
@@ -307,7 +317,7 @@ export function useWardrobeStore(token: string, onExpired: () => void) {
       if (demo)
         return call<TodayResult>("/today/sample", "POST", {
           ...place,
-          pieces: pieces.map(({ id, name, category, color, texture, style }) => ({ id, name, category, color, texture, style })),
+          pieces: pieces.map(({ id, name, category, color, texture, style, garment }) => ({ id, name, category, color, texture, style, garment })),
         });
       return call<TodayResult>(`/wardrobes/${wid}/today`, "POST", place);
     },

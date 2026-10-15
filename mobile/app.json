@@ -10,7 +10,10 @@
     "backgroundColor": "#F6F2EA",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "app.outfitly.mobile"
+      "bundleIdentifier": "app.outfitly.mobile",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "package": "app.outfitly.mobile",
