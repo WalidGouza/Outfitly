@@ -10,12 +10,16 @@ export type LabState = { picks: Partial<Record<Category, string>>; style: string
 export const emptyLab: LabState = { picks: {}, style: "Auto" };
 
 // Jacket first and optional, like an outfit reads top to bottom.
+// A dress takes the place of the top and the bottoms.
 const SLOTS: { key: Category; label: string; optional?: boolean }[] = [
   { key: "jackets", label: "Layer", optional: true },
   { key: "tops", label: "Top" },
-  { key: "pants", label: "Pants" },
+  { key: "pants", label: "Bottoms" },
+  { key: "dresses", label: "Or a dress" },
   { key: "shoes", label: "Shoes" },
 ];
+const ONE_PIECE: Category[] = ["dresses"];
+const SEPARATES: Category[] = ["tops", "pants"];
 
 export function Lab({ app, lab, setLab }: { app: App; lab: LabState; setLab: Dispatch<SetStateAction<LabState>> }) {
   const { store } = app;
@@ -29,7 +33,10 @@ export function Lab({ app, lab, setLab }: { app: App; lab: LabState; setLab: Dis
     () => SLOTS.map((s) => store.pieces.find((p) => p.id === lab.picks[s.key])).filter(Boolean) as Piece[],
     [store.pieces, lab.picks],
   );
-  const complete = ["tops", "pants", "shoes"].every((c) => picked.some((p) => p.category === c));
+  const has = (c: Category) => picked.some((p) => p.category === c);
+  const complete = has("shoes") && (has("dresses") || (has("tops") && has("pants")));
+  // Hide the dress slot for men's wardrobes that have no dresses.
+  const slots = SLOTS.filter((s) => s.key !== "dresses" || app.wear !== "men" || store.pieces.some((p) => p.category === "dresses"));
   const key = picked.map((p) => p.id).join() + "|" + lab.style;
 
   // Re-rate shortly after each change; a slower answer for an older outfit is ignored.
@@ -53,7 +60,11 @@ export function Lab({ app, lab, setLab }: { app: App; lab: LabState; setLab: Dis
     setLab((l) => {
       const picks = { ...l.picks };
       if (picks[category] === id) delete picks[category];
-      else picks[category] = id;
+      else {
+        picks[category] = id;
+        // Choosing a dress clears the top and bottoms, and the other way round.
+        for (const other of ONE_PIECE.includes(category) ? SEPARATES : SEPARATES.includes(category) ? ONE_PIECE : []) delete picks[other];
+      }
       return { ...l, picks };
     });
   const look: Look | null = rating && complete ? { items: picked, style: rating.style, score: rating.score, breakdown: rating.breakdown } : null;
@@ -78,7 +89,7 @@ export function Lab({ app, lab, setLab }: { app: App; lab: LabState; setLab: Dis
       </div>
       <div className="studio">
         <section className="card studio__settings lab__picker" aria-label="Choose pieces">
-          {SLOTS.map((slot) => {
+          {slots.map((slot) => {
             const options = store.pieces.filter((p) => p.category === slot.key);
             return (
               <fieldset key={slot.key}>
@@ -128,7 +139,7 @@ export function Lab({ app, lab, setLab }: { app: App; lab: LabState; setLab: Dis
           {!look ? (
             <div className="card card--pad lab__empty">
               <div className="lab__slots" aria-hidden="true">
-                {SLOTS.map((slot) => {
+                {slots.map((slot) => {
                   const p = picked.find((x) => x.category === slot.key);
                   return (
                     <span key={slot.key} className={`lab__slot${p ? " is-filled" : ""}`}>
@@ -138,7 +149,7 @@ export function Lab({ app, lab, setLab }: { app: App; lab: LabState; setLab: Dis
                 })}
               </div>
               <p className="t-foot muted">
-                {busy ? "Rating your outfit…" : complete ? "" : "Choose a top, pants and shoes (and a layer if you like) to get a rating."}
+                {busy ? "Rating your outfit…" : complete ? "" : "Choose a top and bottoms, or a dress, plus shoes (and a layer if you like) to get a rating."}
               </p>
             </div>
           ) : (

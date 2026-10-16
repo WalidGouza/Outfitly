@@ -3,6 +3,7 @@ import { colorChoices, colorName, verdict } from "./colors";
 import { Select } from "./Select";
 import { KEEP_OOTD_UNSEEN_FOR_TESTING } from "./testing";
 import { describePiece } from "./describe";
+import { greeting } from "./greeting";
 import { StudioLoopVideo } from "./StudioLoopVideo";
 import {
   ColorLabel,
@@ -20,10 +21,10 @@ import {
   roleOf,
   type ToastData,
 } from "./ui";
-import { categories, garmentTypes, styles, textures, type Category, type Look, type MissingPiece, type Piece, type Store, type Weather } from "./store";
+import { categories, categoriesFor, garmentTypes, styles, textures, typesFor, type Wear, type Category, type Look, type MissingPiece, type Piece, type Store, type Weather } from "./store";
 
 export type Route =
-  | { name: "home" | "today" | "wardrobe" | "studio" | "saved" | "lab" }
+  | { name: "home" | "today" | "wardrobes" | "wardrobe" | "studio" | "saved" | "lab" | "account" }
   | { name: "piece"; id: string };
 
 export type StudioState = {
@@ -63,16 +64,37 @@ export type App = {
   pickAnother: () => void;
   locate: () => void;
   saveLook: (look: Look) => void;
+  /** Which clothes to offer (profile setting); "both" for the sample wardrobe. */
+  wear: Wear;
+  /** Opens the new-wardrobe dialog (sign-in first for the sample wardrobe). */
+  newWardrobe: () => void;
   /** Puts a piece in its slot in the Outfit lab and opens the lab. */
   openInLab: (piece: Piece) => void;
 };
 
 const plural = (n: number, one: string, many = one + "s") => `${n} ${n === 1 ? one : many}`;
 const capital = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
-const today = () => new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" });
-function greeting() {
-  const h = new Date().getHours();
-  return h < 12 ? "Good morning" : h < 18 ? "Good afternoon" : "Good evening";
+const today = (now = new Date()) => now.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" });
+
+/** The current time, refreshed on each new minute and when the tab comes back into view. */
+function useClock() {
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    let timer = 0;
+    const tick = () => {
+      setNow(new Date());
+      // Wake up just after the next minute starts, so the greeting changes right on the hour.
+      timer = window.setTimeout(tick, 60_000 - (Date.now() % 60_000) + 50);
+    };
+    timer = window.setTimeout(tick, 60_000 - (Date.now() % 60_000) + 50);
+    const onShow = () => document.visibilityState === "visible" && setNow(new Date());
+    document.addEventListener("visibilitychange", onShow);
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener("visibilitychange", onShow);
+    };
+  }, []);
+  return now;
 }
 const layered = (look: Look) => look.items.some((i) => i.category === "jackets");
 
@@ -110,13 +132,15 @@ export function Home({ app }: { app: App }) {
   }, []);
   const look = app.today.looks[app.today.index];
   const recent = [...store.pieces].reverse().slice(0, 6);
+  const now = useClock();
+  const hello = greeting(now);
   return (
     <>
       <div className="page-head">
         <div className="page-head__text">
-          <span className="t-eyebrow">{today()}</span>
-          <h1 className="t-large">{greeting()}</h1>
-          <p className="t-sub">What are we wearing today?</p>
+          <span className="t-eyebrow">{today(now)}</span>
+          <h1 className="t-large">{hello.title}</h1>
+          <p className="t-sub">{hello.sub}</p>
         </div>
         <div className="page-head__actions">
           <button className="btn" onClick={() => go({ name: "studio" })}>
@@ -167,7 +191,7 @@ export function Home({ app }: { app: App }) {
                 ? `${look.style}, ${look.score}% match. A fresh pick from your wardrobe.`
                 : app.today.busy
                   ? "Picking something from your wardrobe…"
-                  : "Add a top, pants and shoes and we pick one every morning."}
+                  : "Add a top, bottoms and shoes (or a dress and shoes) and we pick one every morning."}
             </p>
           </span>
           {look && (
@@ -307,7 +331,7 @@ export function Today({ app }: { app: App }) {
           text={
             t.busy || store.loading
               ? "Picking today’s outfit…"
-              : "Add at least one top, one pair of pants and one pair of shoes, and an outfit appears here every morning."
+              : "Add a top, bottoms and shoes, or a dress and shoes, and an outfit appears here every morning."
           }
           action={t.busy || store.loading ? undefined : { label: "Add a piece", run: app.openAdd }}
         />
@@ -481,6 +505,85 @@ function WorthAdding({ app }: { app: App }) {
   );
 }
 
+// ── Wardrobes (landing) ─────────────────────────────────────────────────────
+// Short lines under the sample wardrobes' names; your own wardrobes show their saved outfits.
+const SAMPLE_TAGLINES: Record<string, string> = {
+  demo: "Your daily rotation",
+  travel: "A lighter kind of packing",
+  city: "Dresses, skirts and heels",
+};
+
+export function Wardrobes({ app }: { app: App }) {
+  const { store } = app;
+  const open = (id: string) => {
+    store.selectWardrobe(id);
+    app.go({ name: "wardrobe" });
+  };
+  return (
+    <>
+      <div className="page-head">
+        <div className="page-head__text">
+          <span className="t-eyebrow wardrobes__eyebrow">A little more you</span>
+          <h1 className="t-large">Your wardrobes</h1>
+          <p className="t-sub">Good outfits begin with what you already own.</p>
+        </div>
+        <div className="page-head__actions">
+          <button className="btn btn--primary" onClick={app.newWardrobe}>
+            <Icon name="plus" />
+            New wardrobe
+          </button>
+        </div>
+      </div>
+      {store.catalogLoading && !store.wardrobes.length ? (
+        <Empty text="Loading your wardrobes…" />
+      ) : (
+        <div className="wardrobe-cards stagger">
+          {store.wardrobes.map((w, i) => {
+            const s = store.summaries[w.id];
+            const tagline = store.demo
+              ? SAMPLE_TAGLINES[w.id]
+              : w.id === store.wid && store.saved.length
+                ? plural(store.saved.length, "saved outfit")
+                : null;
+            return (
+              <button key={w.id} className="wardrobe-card" onClick={() => open(w.id)} aria-label={`${w.name}, ${plural(s?.count ?? 0, "piece")}`}>
+                <span className={`wardrobe-card__media wardrobe-card__media--${i % 2 ? "b" : "a"}`}>
+                  {s?.preview.length ? (
+                    s.preview.map((p) => (
+                      <span key={p.id} className="wardrobe-card__piece">
+                        <PieceArt piece={p} />
+                      </span>
+                    ))
+                  ) : (
+                    <span className="t-foot muted">Empty for now. Add a first piece.</span>
+                  )}
+                </span>
+                <span className="wardrobe-card__body">
+                  <span style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 0 }}>
+                    <span className="t-title2 wardrobe-card__name">{w.name}</span>
+                    <span className="t-foot muted">
+                      {s ? plural(s.count, "piece") : "…"}
+                      {tagline ? ` · ${tagline}` : ""}
+                    </span>
+                  </span>
+                  <span className="wardrobe-card__arrow">
+                    <Icon name="arrow" />
+                  </span>
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+      <button className="wardrobe-new" onClick={app.newWardrobe}>
+        <Icon name="plus" />
+        Make room for a new collection
+      </button>
+      <p className="t-foot muted wardrobes__footnote">Separate by season, occasion, or wherever life takes you.</p>
+    </>
+  );
+}
+
 // ── Wardrobe ────────────────────────────────────────────────────────────────
 export function Wardrobe({ app }: { app: App }) {
   const { store } = app;
@@ -495,6 +598,10 @@ export function Wardrobe({ app }: { app: App }) {
     .filter((s) => s.items.length);
   return (
     <>
+      <button className="back-link" onClick={() => app.go({ name: "wardrobes" })}>
+        <Icon name="back" />
+        All wardrobes
+      </button>
       <div className="page-head">
         <div className="page-head__text">
           <h1 className="t-large">{store.wardrobe?.name ?? "Wardrobe"}</h1>
@@ -520,7 +627,7 @@ export function Wardrobe({ app }: { app: App }) {
         className="cat-seg"
         value={cat}
         onChange={setCat}
-        options={[{ value: "all", label: "All" }, ...categories.map((c) => ({ value: c.key, label: c.label }))]}
+        options={[{ value: "all", label: "All" }, ...categoriesFor(app.wear, store.pieces).map((c) => ({ value: c.key, label: c.label }))]}
       />
       {sections.map((s) => (
         <section className="section" key={s.key}>
@@ -878,7 +985,7 @@ export function Studio({ app }: { app: App }) {
                 <StudioLoopVideo />
               </div>
             ) : (
-              <Empty text={store.pieces.length ? "Pick a style and a colour direction, then press Generate outfits." : "Add a top, pants and shoes first."} />
+              <Empty text={store.pieces.length ? "Pick a style and a colour direction, then press Generate outfits." : "Add a top, bottoms and shoes, or a dress and shoes, first."} />
             )
           ) : looks.length ? (
             <div className="outfit-grid stagger">
@@ -1002,6 +1109,11 @@ type Draft = { name: string; category: Category; garment: string; texture: strin
 const blank: Draft = { name: "", category: "tops", garment: "", texture: "cotton", style: "Everyday", color: "#8b927a" };
 // A type only makes sense within its category ("shorts" is never a top).
 const fitType = (d: Draft): Draft => (garmentTypes[d.category].includes(d.garment) ? d : { ...d, garment: "" });
+const WEAR_OPTIONS: { value: Wear; label: string }[] = [
+  { value: "women", label: "Women’s" },
+  { value: "men", label: "Men’s" },
+  { value: "both", label: "Both" },
+];
 
 export function AddPiece({ app, open, onClose }: { app: App; open: boolean; onClose: () => void }) {
   const { store } = app;
@@ -1152,7 +1264,7 @@ export function AddPiece({ app, open, onClose }: { app: App; open: boolean; onCl
               edited.current.add("category");
               setDraft((d) => fitType({ ...d, category: v }));
             }}
-            options={categories.map((c) => ({ value: c.key, label: c.one }))}
+            options={categoriesFor(app.wear, store.pieces).map((c) => ({ value: c.key, label: c.one }))}
           />
         </div>
         <div className="fields">
@@ -1169,7 +1281,7 @@ export function AddPiece({ app, open, onClose }: { app: App; open: boolean; onCl
                 "Type",
                 draft.garment,
                 (v: string) => edit("garment", v),
-                [{ value: "", label: "Not sure" }, ...garmentTypes[draft.category].map((t) => ({ value: t, label: capital(t) }))],
+                [{ value: "", label: "Not sure" }, ...typesFor(draft.category, app.wear, draft.garment).map((t) => ({ value: t, label: capital(t) }))],
                 "40%",
               ],
               ["Fabric", draft.texture, (v: string) => edit("texture", v), textures.map((t) => ({ value: t, label: capital(t) })), "46%"],
@@ -1225,6 +1337,7 @@ export function AddPiece({ app, open, onClose }: { app: App; open: boolean; onCl
 // ── Account and wardrobe dialogs ────────────────────────────────────────────
 export function AuthDialog({ open, onClose, onSignedIn, call }: { open: boolean; onClose: () => void; onSignedIn: (token: string) => void; call: Store["call"] }) {
   const [register, setRegister] = useState(false);
+  const [wear, setWear] = useState<Wear | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   useEffect(() => {
@@ -1239,6 +1352,7 @@ export function AuthDialog({ open, onClose, onSignedIn, call }: { open: boolean;
       const result = await call<{ token: string }>(register ? "/auth/register" : "/auth/login", "POST", {
         email: String(f.get("email") ?? "").trim(),
         password: f.get("password"),
+        ...(register && wear ? { wear } : {}),
       });
       onSignedIn(result.token);
       onClose();
@@ -1265,6 +1379,21 @@ export function AuthDialog({ open, onClose, onSignedIn, call }: { open: boolean;
             <input className="input" name="password" type="password" minLength={10} maxLength={128} required autoComplete={register ? "new-password" : "current-password"} />
             <span className="t-cap muted">At least 10 characters</span>
           </label>
+          {register && (
+            <fieldset className="plain field">
+              <legend className="field__label" style={{ padding: 0, marginBottom: 8 }}>
+                I mostly wear
+              </legend>
+              <div className="pills" role="radiogroup" aria-label="I mostly wear">
+                {WEAR_OPTIONS.map((o) => (
+                  <button key={o.value} type="button" className="pill" role="radio" aria-checked={wear === o.value} aria-pressed={wear === o.value} onClick={() => setWear(o.value)}>
+                    {o.label}
+                  </button>
+                ))}
+              </div>
+              <span className="t-cap muted">Sets which clothes and outfit ideas we suggest. You can change it in your profile.</span>
+            </fieldset>
+          )}
           <ErrorNote text={error} />
         </div>
         <div className="dialog__foot" style={{ flexDirection: "column" }}>

@@ -401,3 +401,64 @@ html[data-theme="dark"]:has(.app) { background: #0B0D0A; }
   .about__grid { grid-template-columns: minmax(0, 1fr); }
   .lab__slots { grid-template-columns: repeat(4, minmax(0, 1fr)); width: 100%; }
 }
+
+/* Wardrobes landing */
+.wardrobes__eyebrow { text-transform: uppercase; letter-spacing: 0.12em; font-size: 12.5px; }
+.wardrobes__footnote { text-align: center; }
+.wardrobe-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 360px), 1fr)); gap: 24px; }
+.ow button.wardrobe-card { display: flex; flex-direction: column; padding: 0; border: 0; border-radius: var(--r-xl); background: var(--surface); box-shadow: var(--shadow-sm); overflow: hidden; text-align: left; color: var(--label); transition: transform 200ms var(--ease-out), box-shadow 200ms var(--ease-out); }
+.ow button.wardrobe-card:active { transform: scale(0.99); transition-duration: 100ms; }
+.wardrobe-card__media { display: flex; align-items: center; justify-content: space-evenly; gap: 8px; aspect-ratio: 2.1 / 1; padding: 20px 16px; overflow: hidden; }
+.wardrobe-card__media--a { background: #E6E9E0; }
+.wardrobe-card__media--b { background: #EAE1D5; }
+.dark .wardrobe-card__media--a { background: #252B24; }
+.dark .wardrobe-card__media--b { background: #2C2822; }
+.wardrobe-card__piece { flex: 1 1 0; max-width: 34%; aspect-ratio: 1; display: grid; place-items: center; filter: drop-shadow(0 14px 18px rgba(30, 34, 29, 0.14)); transition: transform 400ms var(--ease-out); }
+.wardrobe-card__piece svg { width: 100%; height: 100%; }
+.wardrobe-card__piece img { width: 100%; height: 100%; object-fit: cover; border-radius: var(--r-md); }
+.wardrobe-card__body { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 22px 26px 24px; }
+.wardrobe-card__name { font-size: 22px; }
+.wardrobe-card__arrow { display: grid; color: var(--label); transition: transform 200ms var(--ease-out); }
+.ow button.wardrobe-new { display: flex; align-items: center; justify-content: center; gap: 10px; min-height: 68px; border: 1.5px dashed color-mix(in srgb, var(--label) 28%, transparent); border-radius: var(--r-lg); background: transparent; color: var(--label-2); font-size: 16px; transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease; }
+@media (hover: hover) and (pointer: fine) {
+  .ow button.wardrobe-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-md); }
+  .wardrobe-card:hover .wardrobe-card__piece { transform: translateY(-4px); }
+  .wardrobe-card:hover .wardrobe-card__arrow { transform: translateX(4px); }
+  .ow button.wardrobe-new:hover { background: var(--fill); border-color: color-mix(in srgb, var(--label) 40%, var(--sep)); color: var(--label); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .wardrobe-card, .wardrobe-card__piece, .wardrobe-card__arrow { transform: none !important; }
+}
+
+/* Account */
+.account { width: min(640px, 100%); margin: 0 auto; display: flex; flex-direction: column; gap: 28px; }
+.account__hero { display: flex; flex-direction: column; align-items: center; gap: 4px; text-align: center; }
+.account__photo { position: relative; margin-bottom: 10px; }
+.account__photo .avatar { box-shadow: 0 0 0 4px var(--surface), 0 0 0 5px var(--sep), var(--shadow-md); }
+.ow .account__camera { position: absolute; right: -2px; bottom: 2px; width: 38px; height: 38px; display: grid; place-items: center; border: 3px solid var(--bg); border-radius: 50%; background: var(--primary); color: var(--on-primary); transition: transform 140ms var(--ease-out); }
+.account__camera .ic { width: 18px; height: 18px; }
+.account__camera:active { transform: scale(0.94); }
+.account__section { display: flex; flex-direction: column; gap: 8px; }
+.account__label { padding: 0 16px; font-size: 12.5px; font-weight: 650; letter-spacing: 0.08em; text-transform: uppercase; color: var(--label-2); }
+.account__row { gap: 16px; min-height: 58px; }
+.account__row--top { align-items: flex-start; padding-top: 14px; padding-bottom: 14px; }
+.account__key { flex: none; width: 110px; font-weight: 600; }
+.account__row--top .account__key { padding-top: 12px; }
+.account__value { flex: 1; min-width: 0; color: var(--label-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.account__row--top .account__value { padding-top: 12px; }
+.account__input { flex: 1; min-height: 40px; padding: 8px 12px; }
+.account__passwords { flex: 1; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.ow .account__edit { margin-left: auto; color: var(--moss); font-weight: 650; box-shadow: none; }
+.dark .account__edit { color: var(--sage); }
+.account__hint { padding: 0 16px; }
+.account__actions { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); gap: 12px; margin-top: 8px; }
+.account__guest { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; }
+.account__signout { min-height: 50px; }
+.sidebar__footer { display: flex; flex-direction: column; gap: 4px; }
+.ow .profile-chip[aria-current="page"] { background: var(--surface); box-shadow: var(--shadow-sm); }
+.sidebar__signout { color: var(--label-2); }
+@media (max-width: 760px) {
+  .account__key { width: 84px; }
+  .account__actions { grid-template-columns: 1fr 1fr; }
+}
+.account__wear { flex: 1; max-width: 360px; }

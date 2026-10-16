@@ -50,19 +50,34 @@ def score_combo(combo, semantic, rules):
     }
 
 
+# The two ways to build an outfit; a layer (jackets) can go over either.
+SHAPES = (("tops", "pants", "shoes"), ("dresses", "shoes"))
+
+
+def is_outfit(categories):
+    """True for one piece per slot of a valid shape, with or without a layer."""
+    cats = list(categories)
+    if len(cats) != len(set(cats)):
+        return False
+    base = set(cats) - {"jackets"}
+    return any(base == set(shape) for shape in SHAPES)
+
+
 def rank(pools, semantic, rules, limit=6, anchor=None):
-    if any(not pools.get(c) for c in ("tops", "pants", "shoes")):
+    layer = ["jackets"] if pools.get("jackets") else []
+    shapes = [list(shape) + layer for shape in SHAPES if all(pools.get(c) for c in shape)]
+    if not shapes:
         return []
-    categories = ["tops", "pants", "shoes"] + (
-        ["jackets"] if pools.get("jackets") else []
-    )
     results = []
-    for n, combo in enumerate(itertools.product(*(pools[c] for c in categories))):
-        if n >= rules["max_combinations"]:
-            break
-        if anchor and anchor not in [x.id for x in combo]:
-            continue
-        results.append({"items": list(combo), **score_combo(combo, semantic, rules)})
+    n = 0
+    for categories in shapes:
+        for combo in itertools.product(*(pools[c] for c in categories)):
+            n += 1
+            if n > rules["max_combinations"]:
+                break
+            if anchor and anchor not in [x.id for x in combo]:
+                continue
+            results.append({"items": list(combo), **score_combo(combo, semantic, rules)})
     results.sort(key=lambda x: x["score"], reverse=True)
     # Greedy diversity avoids returning the same base outfit with only different jackets.
     selected = []

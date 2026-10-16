@@ -23,7 +23,7 @@ from .database import make_engine
 from .models import Base, User, Wardrobe, Cloth, Outfit
 from .embeddings import EmbeddingClient, EmbeddingUnavailable
 from .text_cache import TextEmbeddingStore
-from .matching import rank, score_combo
+from .matching import is_outfit, rank, score_combo
 from . import attributes
 from .storage import ImageStorage, StorageUnavailable
 from .run import api_options
@@ -57,6 +57,9 @@ async def lifespan(app):
         conn.execute(text("ALTER TABLE public.clothes ADD COLUMN IF NOT EXISTS garment VARCHAR"))
         conn.execute(text("ALTER TABLE public.outfits ADD COLUMN IF NOT EXISTS score INTEGER"))
         conn.execute(text("ALTER TABLE public.outfits ADD COLUMN IF NOT EXISTS breakdown JSON"))
+        conn.execute(text("ALTER TABLE public.users ADD COLUMN IF NOT EXISTS username VARCHAR"))
+        conn.execute(text("ALTER TABLE public.users ADD COLUMN IF NOT EXISTS avatar VARCHAR"))
+        conn.execute(text("ALTER TABLE public.users ADD COLUMN IF NOT EXISTS wear VARCHAR"))
     with engine.begin() as conn:
         for table in Base.metadata.sorted_tables:
             # Browser access must pass through FastAPI authorization. No Data API policies.
@@ -142,6 +145,8 @@ class Credentials(BaseModel):
         min_length=3, max_length=254, pattern=r"^[^\s@]+@[^\s@]+\.[^\s@]+$"
     )
     password: str = Field(min_length=10, max_length=128)
+    # Asked at sign-up; only used on registration and optional.
+    wear: Literal["women", "men", "both"] | None = None
 
 
 def token(u):
@@ -157,7 +162,7 @@ def token(u):
 @app.post("/auth/register")
 def register(body: Credentials, session=Depends(db)):
     u = User(
-        email=body.email.strip().lower(), password_hash=passwords.hash(body.password)
+        email=body.email.strip().lower(), password_hash=passwords.hash(body.password), wear=body.wear
     )
     session.add(u)
     try:
@@ -174,6 +179,133 @@ def login(body: Credentials, session=Depends(db)):
     if not u or not passwords.verify(body.password, u.password_hash):
         raise HTTPException(401, "Email or password incorrect")
     return token(u)
+
+
+# ── Account: profile, password, photo, deletion ─────────────────────────────
+def me_json(u):
+    return {"email": u.email, "username": u.username, "avatar": bool(u.avatar), "wear": getattr(u, "wear", None)}
+
+
+class Profile(BaseModel):
+    # Letters (any language), digits, spaces and . _ - ; trimmed before checking.
+    username: str | None = Field(None, min_length=2, max_length=30, pattern=r"^[\w .-]+$")
+    wear: Literal["women", "men", "both"] | None = None
+
+
+class PasswordChange(BaseModel):
+    current_password: str = Field(min_length=1, max_length=128)
+    new_password: str = Field(min_length=10, max_length=128)
+
+
+class Confirm(BaseModel):
+    password: str = Field(min_length=1, max_length=128)
+
+
+def check_password(u, password):
+    if not passwords.verify(password, u.password_hash):
+        raise HTTPException(403, "Current password is incorrect")
+
+
+@app.get("/me")
+def me(u=Depends(user)):
+    return me_json(u)
+
+
+@app.patch("/me")
+def update_me(body: Profile, u=Depends(user), session=Depends(db)):
+    if body.username is None and body.wear is None:
+        raise HTTPException(422, "Nothing to update")
+    if body.username is not None:
+        name = " ".join(body.username.split())
+        if len(name) < 2:
+            raise HTTPException(422, "Username must be at least 2 characters")
+        u.username = name
+    if body.wear is not None:
+        u.wear = body.wear
+    session.commit()
+    return me_json(u)
+
+
+@app.post("/me/password")
+def change_password(body: PasswordChange, u=Depends(user), session=Depends(db)):
+    check_password(u, body.current_password)
+    if body.new_password == body.current_password:
+        raise HTTPException(422, "Choose a password different from the current one")
+    u.password_hash = passwords.hash(body.new_password)
+    session.commit()
+    return {"ok": True}
+
+
+@app.put("/me/avatar")
+def set_avatar(image: UploadFile = File(), u=Depends(user), session=Depends(db)):
+    im, _ = load_image(image)
+    # Square, centred crop, small enough for a profile picture.
+    square = ImageOps.fit(im, (512, 512), method=Image.Resampling.LANCZOS)
+    out = BytesIO()
+    square.save(out, format="JPEG", quality=88)
+    filename = image_storage.save(out.getvalue())
+    old, u.avatar = u.avatar, filename
+    try:
+        session.commit()
+    except Exception:
+        session.rollback()
+        image_storage.delete(filename)
+        raise
+    if old:
+        try:
+            image_storage.delete(old)
+        except Exception:
+            logger.error("Old profile photo cleanup failed")
+    return me_json(u)
+
+
+@app.get("/me/avatar")
+def get_avatar(u=Depends(user)):
+    if not u.avatar:
+        raise HTTPException(404, "No profile photo")
+    try:
+        jpeg = image_storage.read(u.avatar)
+    except FileNotFoundError:
+        raise HTTPException(404, "Profile photo unavailable") from None
+    return Response(jpeg, media_type="image/jpeg", headers={"Cache-Control": "private, no-store"})
+
+
+@app.delete("/me/avatar")
+def remove_avatar(u=Depends(user), session=Depends(db)):
+    old, u.avatar = u.avatar, None
+    session.commit()
+    if old:
+        try:
+            image_storage.delete(old)
+        except Exception:
+            logger.error("Profile photo cleanup failed")
+    return me_json(u)
+
+
+@app.delete("/me")
+def delete_account(body: Confirm, u=Depends(user), session=Depends(db)):
+    """Deletes the account and everything in it: wardrobes, pieces, saved outfits, photos."""
+    check_password(u, body.password)
+    wardrobes = list(session.scalars(select(Wardrobe).where(Wardrobe.user_id == u.id)))
+    ids = [w.id for w in wardrobes]
+    photos = [u.avatar] if u.avatar else []
+    if ids:
+        for o in session.scalars(select(Outfit).where(Outfit.wardrobe_id.in_(ids))):
+            session.delete(o)
+        for c in session.scalars(select(Cloth).where(Cloth.wardrobe_id.in_(ids))):
+            photos.append(c.image)
+            session.delete(c)
+    for w in wardrobes:
+        session.delete(w)
+    session.delete(u)
+    session.commit()
+    for filename in photos:
+        try:
+            image_storage.delete(filename)
+        except Exception:
+            # The account is already gone; an orphaned private photo is harmless.
+            logger.error("Photo cleanup failed after deleting an account")
+    return {"ok": True, "removed_photos": len(photos)}
 
 
 class Name(BaseModel):
@@ -235,7 +367,7 @@ def analyze(wid: str, image: UploadFile = File(), u=Depends(user), session=Depen
     owned(wid, u, session)
     im, jpeg = load_image(image)
     try:
-        return attributes.suggest(im, jpeg, embeddings)
+        return attributes.suggest(im, jpeg, embeddings, getattr(u, "wear", None))
     except EmbeddingUnavailable as exc:
         logger.warning("Attribute detection unavailable: %s", exc)
         return attributes.suggest_color_only(im)
@@ -247,7 +379,7 @@ def analyze(wid: str, image: UploadFile = File(), u=Depends(user), session=Depen
 def upload(
     wid: str,
     name: str = Form(min_length=1, max_length=80),
-    category: Literal["tops", "pants", "shoes", "jackets"] = Form(),
+    category: Literal["tops", "pants", "shoes", "jackets", "dresses"] = Form(),
     texture: Literal[
         "cotton", "denim", "knit", "leather", "linen", "silk", "other"
     ] = Form(),
@@ -359,7 +491,7 @@ def generate(wid: str, body: Generate, u=Depends(user), session=Depends(db)):
         # The starting piece only steers which candidates are considered...
         query = [(a + b) / 2 for a, b in zip(query, anchor.embedding)]
     pools = {}
-    for category in ["tops", "pants", "shoes"] + (
+    for category in ["tops", "pants", "dresses", "shoes"] + (
         ["jackets"] if body.include_jacket else []
     ):
         rows = session.scalars(
@@ -382,7 +514,7 @@ def generate(wid: str, body: Generate, u=Depends(user), session=Depends(db)):
     results = rank(pools, semantic, rules, anchor=body.anchor_id)
     if not results:
         raise HTTPException(
-            400, "Add at least one top, one pair of pants, and one pair of shoes"
+            400, "Add a top, bottoms and shoes, or a dress and shoes"
         )
     return [
         {**r, "items": [cloth_json(c) for c in r["items"]], "style": body.style}
@@ -402,11 +534,8 @@ def outfit_pieces(wid, cloth_ids, session):
             select(Cloth).where(Cloth.wardrobe_id == wid, Cloth.id.in_(cloth_ids))
         )
     )
-    if len(items) != len(cloth_ids) or set(c.category for c in items) not in (
-        {"tops", "pants", "shoes"},
-        {"tops", "pants", "shoes", "jackets"},
-    ):
-        raise HTTPException(400, "Choose one piece per category from this wardrobe")
+    if len(items) != len(cloth_ids) or not is_outfit(c.category for c in items):
+        raise HTTPException(400, "Choose a top, bottoms and shoes, or a dress and shoes, from this wardrobe")
     return items
 
 
@@ -523,7 +652,7 @@ class Place(BaseModel):
 class SamplePiece(BaseModel):
     id: str = Field(max_length=40)
     name: str = Field(max_length=80)
-    category: Literal["tops", "pants", "shoes", "jackets"]
+    category: Literal["tops", "pants", "shoes", "jackets", "dresses"]
     color: str = Field(pattern=r"^#[0-9a-fA-F]{6}$")
     texture: Literal["cotton", "denim", "knit", "leather", "linen", "silk", "other"]
     style: Style = "Everyday"
@@ -551,7 +680,7 @@ def forecast_for(place):
 def weather_looks(pieces, semantic, plan, w, limit=6):
     """Best outfits for today's weather from these pieces, best first."""
     fits = {c.id: weather.fit(c, plan) for c in pieces}
-    categories = ["tops", "pants", "shoes"] + (["jackets"] if weather.wants_layer(plan, w) else [])
+    categories = ["tops", "pants", "dresses", "shoes"] + (["jackets"] if weather.wants_layer(plan, w) else [])
     pools = {}
     for category in categories:
         ranked = sorted(

@@ -4,7 +4,7 @@ from fastapi.testclient import TestClient
 from app import main
 from app.models import Cloth, Wardrobe
 
-CATEGORIES = ("tops", "pants", "shoes", "jackets")
+CATEGORIES = ("tops", "pants", "shoes", "jackets", "dresses")
 
 
 def vector(*head):

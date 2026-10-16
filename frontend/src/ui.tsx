@@ -25,6 +25,7 @@ const paths = {
   play: ["M8 5.5v13l10-6.5z"],
   pin: ["M12 21s-6.5-5.8-6.5-11a6.5 6.5 0 0 1 13 0c0 5.2-6.5 11-6.5 11z", "M12 7.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5z"],
   pause: ["M8 5h2.5v14H8z", "M13.5 5H16v14h-2.5z"],
+  arrow: ["M5 12h14", "M13 6l6 6-6 6"],
   lab: ["M9 3h6", "M10 3v6l-5.2 9.1A2 2 0 0 0 6.5 21h11a2 2 0 0 0 1.7-2.9L14 9V3", "M7.5 15h9"],
 };
 export type IconName = keyof typeof paths;
@@ -133,10 +134,19 @@ const G = {
   jacket: "M34 14 L44 11 L50 32 L56 11 L66 14 L82 22 L88 80 L77 82 L71 44 L71 88 L29 88 L29 44 L23 82 L12 80 L18 22 Z",
   sneaker: "M10 56 L14 38 Q22 41 31 38 L46 49 Q62 53 80 55 Q91 57 91 66 L91 72 L10 72 Z",
   loafer: "M10 60 Q12 48 26 46 Q44 46 60 50 Q84 54 90 62 L90 70 L10 70 Z",
+  dress: "M40 10 L46 10 Q50 17 54 10 L60 10 L63 30 Q72 52 82 90 L18 90 Q28 52 37 30 Z",
+  skirt: "M32 18 L68 18 L82 84 L18 84 Z",
+  boot: "M22 16 L46 16 L48 52 Q70 54 84 60 Q90 63 90 70 L90 76 L20 76 Z",
+  heel: "M12 64 Q30 54 56 58 L78 38 L88 42 L86 60 L86 78 L80 78 L80 64 Q50 72 12 72 Z",
 };
 function shape(p: Piece) {
   const n = p.name.toLowerCase();
-  if (p.category === "pants") return G.pants;
+  if (p.category === "dresses") return G.dress;
+  if (p.category === "pants") return /skirt/.test(p.garment ?? n) ? G.skirt : G.pants;
+  if (p.category === "shoes" && /boot/.test(p.garment ?? n)) return G.boot;
+  if (p.category === "shoes" && /heel|mule/.test(p.garment ?? n)) return G.heel;
+  if (p.category === "shoes" && /flat/.test(p.garment ?? n)) return G.loafer;
+  if (p.category === "tops" && /camisole|crop|bodysuit|corset|tank/.test(p.garment ?? n)) return G.tee;
   if (p.category === "jackets") return G.jacket;
   if (p.category === "shoes") return /loafer|boot|derby|oxford|suede/.test(n) ? G.loafer : G.sneaker;
   if (/shirt|oxford|blouse/.test(n) && !/t-shirt|tee|sweat/.test(n)) return G.shirt;
@@ -187,7 +197,7 @@ export function PieceArt({ piece, label }: { piece: Piece; label?: boolean }) {
 
 export const roleOf = (p: Piece) => categories.find((c) => c.key === p.category)?.role ?? p.category;
 // Outfits read top to bottom: layer, top, pants, shoes.
-const order = { jackets: 0, tops: 1, pants: 2, shoes: 3 } as const;
+const order = { jackets: 0, tops: 1, dresses: 1, pants: 2, shoes: 3 } as const;
 export const ordered = (items: Piece[]) => [...items].sort((a, b) => order[a.category] - order[b.category]);
 
 // ── Score ───────────────────────────────────────────────────────────────────

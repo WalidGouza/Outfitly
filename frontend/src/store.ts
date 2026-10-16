@@ -3,7 +3,9 @@ import { requestJson, resolveApiUrl } from "./api";
 import { scoreLook } from "./colors";
 import { useWardrobeCatalog, type Wardrobe } from "./useWardrobeCatalog";
 
-export type Category = "tops" | "pants" | "shoes" | "jackets";
+export type Category = "tops" | "pants" | "dresses" | "shoes" | "jackets";
+/** Which clothes the app offers, from the profile: women's, men's or both (the default). */
+export type Wear = "women" | "men" | "both";
 export type Piece = {
   id: string;
   name: string;
@@ -53,21 +55,34 @@ export type Suggestion = {
 };
 export type Rating = { score: number; breakdown: Breakdown; style: string; estimated?: boolean };
 export type GenerateOptions = { style: string; harmony: string; includeJacket: boolean; anchorId: string };
-export type Summary = { count: number; colors: string[] };
+export type Summary = { count: number; colors: string[]; preview: Piece[] };
 
 export const categories: { key: Category; label: string; one: string; role: string }[] = [
   { key: "tops", label: "Tops", one: "Top", role: "Top" },
-  { key: "pants", label: "Pants", one: "Pants", role: "Pants" },
+  { key: "dresses", label: "Dresses", one: "Dress", role: "Dress" },
+  { key: "pants", label: "Bottoms", one: "Bottoms", role: "Bottoms" },
   { key: "shoes", label: "Shoes", one: "Shoes", role: "Shoes" },
   { key: "jackets", label: "Jackets", one: "Jacket", role: "Jacket" },
 ];
 // Mirrors GARMENTS in backend/app/attributes.py: what photo detection can recognise.
 export const garmentTypes: Record<Category, string[]> = {
-  tops: ["t-shirt", "shirt", "blouse", "polo shirt", "sweater", "hoodie", "sweatshirt", "tank top"],
-  pants: ["jeans", "trousers", "chinos", "shorts", "skirt", "joggers", "leggings"],
-  shoes: ["sneakers", "boots", "loafers", "sandals", "heels", "dress shoes"],
-  jackets: ["jacket", "coat", "blazer", "cardigan", "puffer jacket"],
+  tops: ["t-shirt", "shirt", "blouse", "polo shirt", "sweater", "hoodie", "sweatshirt", "tank top", "crop top", "camisole", "bodysuit", "corset top"],
+  pants: ["jeans", "trousers", "chinos", "shorts", "skirt", "mini skirt", "wide-leg trousers", "culottes", "joggers", "leggings"],
+  dresses: ["mini dress", "midi dress", "maxi dress", "shirt dress", "jumpsuit"],
+  shoes: ["sneakers", "boots", "loafers", "sandals", "heels", "flats", "ballet flats", "mules", "ankle boots", "dress shoes"],
+  jackets: ["jacket", "coat", "blazer", "cardigan", "puffer jacket", "trench coat", "cropped jacket"],
 };
+// Mirrors WOMEN_ONLY in backend/app/attributes.py; everything else is shared.
+const WOMEN_ONLY = new Set([
+  "blouse", "crop top", "camisole", "bodysuit", "corset top", "skirt", "mini skirt", "culottes", "leggings",
+  "heels", "ballet flats", "mules", "cropped jacket", ...garmentTypes.dresses,
+]);
+/** The types offered for a category; `current` stays listed so an existing piece never loses its type. */
+export const typesFor = (category: Category, wear: Wear, current = "") =>
+  garmentTypes[category].filter((t) => wear !== "men" || !WOMEN_ONLY.has(t) || t === current);
+/** Categories offered; dresses are hidden for men's wardrobes unless some are already in it. */
+export const categoriesFor = (wear: Wear, pieces: { category: Category }[] = []) =>
+  categories.filter((c) => c.key !== "dresses" || wear !== "men" || pieces.some((p) => p.category === "dresses"));
 export const textures = ["cotton", "denim", "knit", "leather", "linen", "silk", "other"];
 export const styles = ["Everyday", "Minimal", "Smart casual", "Streetwear", "Evening"];
 
@@ -91,10 +106,36 @@ const sample: Piece[] = (
     ["s8", "Brown suede loafers", "shoes", "#7A5235", "leather", "Smart casual", "loafers"],
     ["s9", "Olive overshirt", "jackets", "#6B6A43", "cotton", "Everyday", "jacket"],
     ["s10", "Navy blazer", "jackets", "#27324A", "other", "Smart casual", "blazer"],
+    ["s11", "Black midi dress", "dresses", "#232323", "silk", "Evening", "midi dress"],
+    ["s12", "Brown ankle boots", "shoes", "#6E4A33", "leather", "Smart casual", "ankle boots"],
   ] as const
 ).map(([id, name, category, color, texture, style, garment]) => ({ id, name, category, color, texture, style, garment }));
+// A women's capsule: dresses, skirts and heels, so visitors see that side of the app too.
+const cityCapsule: Piece[] = (
+  [
+    ["c1", "Cream silk camisole", "tops", "#F0E6CD", "silk", "Evening", "camisole"],
+    ["c2", "White crop top", "tops", "#F5F5F5", "cotton", "Streetwear", "crop top"],
+    ["c3", "Pink silk blouse", "tops", "#EE96AA", "silk", "Smart casual", "blouse"],
+    ["c4", "Black leather mini skirt", "pants", "#191919", "leather", "Evening", "mini skirt"],
+    ["c5", "Beige wide-leg trousers", "pants", "#D6C4A3", "linen", "Minimal", "wide-leg trousers"],
+    ["c6", "Blue denim skirt", "pants", "#3E5C8C", "denim", "Everyday", "skirt"],
+    ["c7", "Sage linen midi dress", "dresses", "#96AA8C", "linen", "Everyday", "midi dress"],
+    ["c8", "Burgundy silk mini dress", "dresses", "#781928", "silk", "Evening", "mini dress"],
+    ["c9", "Navy shirt dress", "dresses", "#1E284B", "cotton", "Smart casual", "shirt dress"],
+    ["c10", "Black heels", "shoes", "#191919", "leather", "Evening", "heels"],
+    ["c11", "Beige ballet flats", "shoes", "#D6C4A3", "leather", "Minimal", "ballet flats"],
+    ["c12", "White leather sneakers", "shoes", "#F5F5F5", "leather", "Everyday", "sneakers"],
+    ["c13", "Camel trench coat", "jackets", "#C19A6B", "cotton", "Smart casual", "trench coat"],
+    ["c14", "Blue cropped denim jacket", "jackets", "#3E5C8C", "denim", "Streetwear", "cropped jacket"],
+  ] as const
+).map(([id, name, category, color, texture, style, garment]) => ({ id, name, category, color, texture, style, garment }));
+
 const sampleFor = (wid: string) =>
-  wid === "travel" ? sample.filter((p) => ["s1", "s3", "s5", "s7", "s9"].includes(p.id)) : sample;
+  wid === "travel"
+    ? sample.filter((p) => ["s1", "s3", "s5", "s7", "s9"].includes(p.id))
+    : wid === "city"
+      ? cityCapsule
+      : sample;
 
 const signature = (look: Look) => look.items.map((i) => i.id).sort().join();
 const demoKey = (wid: string) => `atelier-saved-${wid}`;
@@ -117,23 +158,27 @@ function demoLooks(pieces: Piece[], { style, harmony, includeJacket, anchorId }:
   const pool = (c: Category) => pieces.filter((p) => p.category === c);
   const jackets = includeJacket ? pool("jackets") : [];
   const looks: Look[] = [];
-  for (const top of pool("tops"))
-    for (const pants of pool("pants"))
-      for (const shoes of pool("shoes"))
-        for (const jacket of jackets.length ? jackets : [undefined]) {
-          const items = [...(jacket ? [jacket] : []), top, pants, shoes];
-          if (anchorId && !items.some((i) => i.id === anchorId)) continue;
-          looks.push({ items, style, ...scoreLook(items, style, harmony) });
-        }
-  if (!looks.length) throw new Error("Add at least one top, one pair of pants, and one pair of shoes");
+  // Same two shapes as the backend: separates (top + bottoms) or a dress, then shoes and a layer.
+  const bases: Piece[][] = [
+    ...pool("tops").flatMap((top) => pool("pants").map((pants) => [top, pants])),
+    ...pool("dresses").map((dress) => [dress]),
+  ];
+  for (const base of bases)
+    for (const shoes of pool("shoes"))
+      for (const jacket of jackets.length ? jackets : [undefined]) {
+        const items = [...(jacket ? [jacket] : []), ...base, shoes];
+        if (anchorId && !items.some((i) => i.id === anchorId)) continue;
+        looks.push({ items, style, ...scoreLook(items, style, harmony) });
+      }
+  if (!looks.length) throw new Error("Add a top, bottoms and shoes, or a dress and shoes");
   looks.sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
   // Same diversity rule as the backend: one look per top/pants/shoes base.
-  const bases = new Set<string>();
+  const seen = new Set<string>();
   return looks
     .filter((l) => {
       const base = l.items.filter((i) => i.category !== "jackets").map((i) => i.id).join();
-      if (bases.has(base)) return false;
-      bases.add(base);
+      if (seen.has(base)) return false;
+      seen.add(base);
       return true;
     })
     .slice(0, 6);
@@ -215,7 +260,7 @@ export function useWardrobeStore(token: string, onExpired: () => void) {
       catalog.wardrobes.map((w) =>
         call<Piece[]>(`/wardrobes/${w.id}/clothes`, "GET", undefined, controller.signal)
           .then((list) => [w.id, summarise(list)] as const)
-          .catch(() => [w.id, { count: 0, colors: [] }] as const),
+          .catch(() => [w.id, { count: 0, colors: [], preview: [] }] as const),
       ),
     ).then((entries) => !controller.signal.aborted && setOthers(Object.fromEntries(entries)));
     return () => controller.abort();
@@ -253,8 +298,11 @@ export function useWardrobeStore(token: string, onExpired: () => void) {
       if (target === wid) setPieces((list) => [...list, piece]);
       else
         setOthers((all) => {
-          const s = all[target] ?? { count: 0, colors: [] };
-          return { ...all, [target]: { count: s.count + 1, colors: [...s.colors, piece.color].slice(0, 3) } };
+          const s = all[target] ?? { count: 0, colors: [], preview: [] };
+          return {
+            ...all,
+            [target]: { count: s.count + 1, colors: [...s.colors, piece.color].slice(0, 3), preview: [...s.preview, piece].slice(0, 3) },
+          };
         });
       return piece;
     },
@@ -404,10 +452,8 @@ export type Store = ReturnType<typeof useWardrobeStore>;
 
 function summarise(list: Piece[]): Summary {
   // One dot per category where possible, so the dots read as a wardrobe, not three tops.
-  const colors: string[] = [];
-  for (const c of ["tops", "pants", "jackets", "shoes"]) {
-    const p = list.find((x) => x.category === c);
-    if (p) colors.push(p.color);
-  }
-  return { count: list.length, colors: colors.slice(0, 3) };
+  const firsts = (["tops", "dresses", "pants", "jackets", "shoes"] as const)
+    .map((c) => list.find((x) => x.category === c))
+    .filter(Boolean) as Piece[];
+  return { count: list.length, colors: firsts.slice(0, 3).map((p) => p.color), preview: firsts.slice(0, 3) };
 }

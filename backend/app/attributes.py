@@ -19,13 +19,20 @@ GARMENTS = {
         "hoodie": "a photo of a hoodie",
         "sweatshirt": "a photo of a sweatshirt",
         "tank top": "a photo of a tank top",
+        "crop top": "a photo of a cropped top",
+        "camisole": "a photo of a camisole with thin straps",
+        "bodysuit": "a photo of a fitted bodysuit",
+        "corset top": "a photo of a corset top",
     },
     "pants": {
         "jeans": "a photo of jeans",
         "trousers": "a photo of trousers",
         "chinos": "a photo of chinos",
         "shorts": "a photo of shorts",
-        "skirt": "a photo of a skirt",
+        "skirt": "a photo of a midi skirt",
+        "mini skirt": "a photo of a mini skirt",
+        "wide-leg trousers": "a photo of wide-leg trousers",
+        "culottes": "a photo of culottes",
         "joggers": "a photo of joggers",
         "leggings": "a photo of leggings",
     },
@@ -35,6 +42,10 @@ GARMENTS = {
         "loafers": "a photo of loafers",
         "sandals": "a photo of sandals",
         "heels": "a photo of high heels",
+        "flats": "a photo of flat shoes",
+        "ballet flats": "a photo of ballet flats",
+        "mules": "a photo of mules",
+        "ankle boots": "a photo of ankle boots",
         "dress shoes": "a photo of leather dress shoes",
     },
     "jackets": {
@@ -43,8 +54,36 @@ GARMENTS = {
         "blazer": "a photo of a blazer",
         "cardigan": "a photo of a cardigan",
         "puffer jacket": "a photo of a puffer jacket",
+        "trench coat": "a photo of a trench coat",
+        "cropped jacket": "a photo of a cropped jacket",
+    },
+    # One-piece outfits: a dress replaces both the top and the bottoms.
+    "dresses": {
+        "mini dress": "a photo of a short mini dress",
+        "midi dress": "a photo of a midi dress",
+        "maxi dress": "a photo of a long maxi dress",
+        "shirt dress": "a photo of a shirt dress",
+        "jumpsuit": "a photo of a jumpsuit",
     },
 }
+
+# Types offered only to people who wear women's clothes (or both). Everything else is shared.
+WOMEN_ONLY = {
+    "blouse", "crop top", "camisole", "bodysuit", "corset top",
+    "skirt", "mini skirt", "culottes", "leggings",
+    "heels", "ballet flats", "mules",
+    "cropped jacket",
+    *GARMENTS["dresses"],
+}
+WEAR = ("women", "men", "both")
+
+
+def garments_for(wear: str | None):
+    """(category, type, prompt) for the clothes this person wears; everything when unknown."""
+    rows = [(c, g, p) for c, types in GARMENTS.items() for g, p in types.items()]
+    if wear == "men":
+        rows = [r for r in rows if r[1] not in WOMEN_ONLY]
+    return rows
 TEXTURES = {
     "cotton": "a close-up photo of a cotton garment",
     "denim": "a close-up photo of a denim garment",
@@ -114,25 +153,25 @@ def _probabilities(image, vectors):
     return [x / total for x in weights]
 
 
-def _labels():
-    garments = [(c, g, p) for c, types in GARMENTS.items() for g, p in types.items()]
+def _labels(wear: str | None = None):
+    garments = garments_for(wear)
     return garments, tuple(p for *_, p in garments) + tuple(TEXTURES.values()) + tuple(STYLES.values())
 
 
-def garment_for(image_vector, label_vectors, category):
+def garment_for(image_vector, label_vectors, category, wear: str | None = None):
     """The most likely garment type within a known category (for pieces saved before types existed)."""
-    garments, _ = _labels()
+    garments, _ = _labels(wear)
     garment_p = _probabilities(image_vector, label_vectors[: len(garments)])
     candidates = [(p, g) for (c, g, _), p in zip(garments, garment_p) if c == category]
     return max(candidates)[1] if candidates else None
 
 
-def classify(image_vector, label_vectors):
+def classify(image_vector, label_vectors, wear: str | None = None):
     """Zero-shot category/type, texture and style with confidences in [0, 1]."""
-    garments, _ = _labels()
+    garments, _ = _labels(wear)
     n, t = len(garments), len(TEXTURES)
     garment_p = _probabilities(image_vector, label_vectors[:n])
-    by_category = {c: 0.0 for c in GARMENTS}
+    by_category = {c: 0.0 for c in {g[0] for g in garments}}
     for (category, _, _), p in zip(garments, garment_p):
         by_category[category] += p
     category = max(by_category, key=by_category.get)
@@ -164,11 +203,12 @@ def piece_name(color: str, garment: str | None, texture: str | None) -> str:
     return " ".join(words).capitalize()
 
 
-def suggest(im: Image.Image, jpeg: bytes, embeddings):
-    """Form suggestions; raises EmbeddingUnavailable when the ML service is down."""
+def suggest(im: Image.Image, jpeg: bytes, embeddings, wear: str | None = None):
+    """Form suggestions; raises EmbeddingUnavailable when the ML service is down.
+    `wear` ("women", "men", "both") limits detection to the clothes the person wears."""
     color = dominant_color(im)
-    _, prompts = _labels()
-    result = classify(embeddings.image(jpeg), embeddings.texts(prompts))
+    _, prompts = _labels(wear)
+    result = classify(embeddings.image(jpeg), embeddings.texts(prompts), wear)
     return {
         "name": piece_name(color, result["garment"], result["texture"]),
         "color": color,

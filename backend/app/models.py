@@ -17,6 +17,11 @@ class User(Base):
     id: Mapped[str] = mapped_column(String, primary_key=True, default=uid)
     email: Mapped[str] = mapped_column(String, unique=True)
     password_hash: Mapped[str] = mapped_column(String)
+    # Optional profile: a display name and a profile photo (stored like piece photos).
+    username: Mapped[str | None] = mapped_column(String, nullable=True)
+    avatar: Mapped[str | None] = mapped_column(String, nullable=True)
+    # Which clothes the app offers: "women", "men" or "both" (null is treated as both).
+    wear: Mapped[str | None] = mapped_column(String, nullable=True)
 
 
 class Wardrobe(Base):

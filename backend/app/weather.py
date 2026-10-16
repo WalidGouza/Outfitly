@@ -217,6 +217,11 @@ GARMENT_TAGS = {
     "boots": {"boots", "warm"}, "sandals": {"summer_shoes", "summer"},
     "coat": {"heavy", "warm", "windproof"}, "puffer jacket": {"heavy", "warm", "windproof"},
     "jacket": {"windproof"}, "blazer": {"windproof"}, "cardigan": {"warm"},
+    "crop top": {"breathable", "summer"}, "camisole": {"breathable", "summer"},
+    "mini skirt": {"breathable", "summer"}, "culottes": {"breathable"},
+    "mini dress": {"breathable", "summer"}, "midi dress": {"breathable"}, "shirt dress": {"breathable"},
+    "ankle boots": {"boots", "warm"}, "mules": {"summer_shoes"}, "ballet flats": {"summer_shoes"},
+    "trench coat": {"waterproof", "windproof"}, "cropped jacket": {"windproof"},
 }
 
 

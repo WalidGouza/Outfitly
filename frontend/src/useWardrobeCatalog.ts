@@ -3,6 +3,7 @@ export type Wardrobe = { id: string; name: string };
 export const sampleWardrobes: Wardrobe[] = [
   { id: "demo", name: "Everyday essentials" },
   { id: "travel", name: "Weekend getaway" },
+  { id: "city", name: "City capsule" },
 ];
 type Snapshot = {
   ownerToken: string;

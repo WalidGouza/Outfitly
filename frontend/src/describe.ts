@@ -4,8 +4,8 @@
 import { colorFamily, colorName, colorRelation, colorScore, textureScore, verdict } from "./colors";
 import type { Breakdown, Category, Piece } from "./store";
 
-const ROLE: Record<Category, string> = { jackets: "jacket", tops: "top", pants: "pants", shoes: "shoes" };
-const ORDER: Category[] = ["jackets", "tops", "pants", "shoes"];
+const ROLE: Record<Category, string> = { jackets: "jacket", tops: "top", dresses: "dress", pants: "bottoms", shoes: "shoes" };
+const ORDER: Category[] = ["jackets", "tops", "dresses", "pants", "shoes"];
 
 // Colours fashion treats as neutrals, even when the colour wheel calls them blue or brown.
 const FASHION_NEUTRALS = new Set(["Black", "Charcoal", "Grey", "Light grey", "White", "Cream", "Beige", "Camel", "Brown", "Khaki", "Navy"]);
@@ -146,8 +146,8 @@ export function describePiece(piece: Piece, wardrobe: Piece[]): PieceDescription
 function weatherTags(p: Piece) {
   const g = p.garment ?? "";
   const n = p.name.toLowerCase();
-  const warm = ["sweater", "hoodie", "sweatshirt", "coat", "puffer jacket", "cardigan", "boots"].includes(g) || p.texture === "knit" || /wool|merino|cashmere|fleece|coat|parka|puffer|boot/.test(n);
-  const light = ["t-shirt", "tank top", "polo shirt", "shorts", "sandals", "skirt"].includes(g) || ["linen", "silk"].includes(p.texture) || /linen|tee|t-shirt|shorts|sandal/.test(n);
+  const warm = ["sweater", "hoodie", "sweatshirt", "coat", "puffer jacket", "cardigan", "boots", "ankle boots"].includes(g) || p.texture === "knit" || /wool|merino|cashmere|fleece|coat|parka|puffer|boot/.test(n);
+  const light = ["t-shirt", "tank top", "polo shirt", "shorts", "sandals", "skirt", "mini skirt", "crop top", "camisole", "mini dress", "mules"].includes(g) || ["linen", "silk"].includes(p.texture) || /linen|tee|t-shirt|shorts|sandal/.test(n);
   return { warm, light: light && !warm };
 }
 

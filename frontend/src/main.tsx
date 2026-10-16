@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import "./ow.css";
 import "./app.css";
 import { emptyLab, Lab, type LabState } from "./lab";
+import { AccountPage, Avatar, displayName, useAvatarUrl, type Me } from "./account";
 import { KEEP_OOTD_UNSEEN_FOR_TESTING } from "./testing";
 import { Logo, LogoSymbol } from "./brand";
 import { resolvedTheme, validTheme, type Theme } from "./theme";
@@ -19,17 +20,18 @@ import {
   Studio,
   Today,
   Wardrobe,
+  Wardrobes,
   type App as AppApi,
   type Route,
   type StudioState,
   type TodayState,
 } from "./screens";
 
-// ── Routing: #/, #/today, #/wardrobe, #/studio, #/lab, #/saved, #/piece/<id> ──────
+// ── Routing: #/, #/today, #/wardrobes, #/wardrobe, #/studio, #/lab, #/saved, #/account, #/piece/<id> ──────
 function parse(hash: string): Route {
   const [, name, id] = hash.replace(/^#/, "").split("/");
   if (name === "piece" && id) return { name: "piece", id: decodeURIComponent(id) };
-  if (name === "today" || name === "wardrobe" || name === "studio" || name === "saved" || name === "lab") return { name };
+  if (["today", "wardrobes", "wardrobe", "studio", "saved", "lab", "account"].includes(name)) return { name } as Route;
   return { name: "home" };
 }
 const href = (r: Route) => (r.name === "piece" ? `#/piece/${encodeURIComponent(r.id)}` : r.name === "home" ? "#/" : `#/${r.name}`);
@@ -37,7 +39,7 @@ const href = (r: Route) => (r.name === "piece" ? `#/piece/${encodeURIComponent(r
 const nav: { route: Route["name"]; label: string; short: string; icon: IconName; tab: boolean }[] = [
   { route: "home", label: "Home", short: "Home", icon: "home", tab: true },
   { route: "today", label: "Today", short: "Today", icon: "today", tab: false },
-  { route: "wardrobe", label: "Wardrobe", short: "Wardrobe", icon: "wardrobe", tab: true },
+  { route: "wardrobes", label: "Wardrobes", short: "Wardrobe", icon: "wardrobe", tab: true },
   { route: "studio", label: "Outfit studio", short: "Studio", icon: "studio", tab: true },
   { route: "lab", label: "Outfit lab", short: "Lab", icon: "lab", tab: false },
   { route: "saved", label: "Saved", short: "Saved", icon: "saved", tab: true },
@@ -98,6 +100,16 @@ function App() {
   }, []);
   const store = useWardrobeStore(token, signOut);
 
+  // The signed-in profile (username, photo) for the sidebar and the Account page.
+  const [me, setMe] = useState<Me | null>(null);
+  const [avatarVersion, setAvatarVersion] = useState(0);
+  const avatarUrl = useAvatarUrl(store.demo ? null : me, avatarVersion);
+  useEffect(() => {
+    setMe(null);
+    if (!token) return;
+    store.call<Me>("/me").then(setMe).catch(() => {});
+  }, [token]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const [route, setRoute] = useState<Route>(() => parse(location.hash));
   useEffect(() => {
     const sync = () => {
@@ -113,7 +125,7 @@ function App() {
 
   const [toastData, setToastData] = useState<ToastData | null>(null);
   const closeToast = useCallback(() => setToastData(null), []);
-  const [dialog, setDialog] = useState<"" | "add" | "auth" | "wardrobe" | "account">("");
+  const [dialog, setDialog] = useState<"" | "add" | "auth" | "wardrobe">("");
   const [removing, setRemoving] = useState<Piece | null>(null);
   const [sheet, setSheet] = useState(false);
   const close = useCallback(() => setDialog(""), []);
@@ -199,7 +211,7 @@ function App() {
     setToday((t) => ({ ...t, busy: true, error: "" }));
     // Without the weather (no location yet, or the forecast is down): a daily pick from the wardrobe.
     const fallback = (error = "") => {
-      if (!has("tops") || !has("pants") || !has("shoes")) return active && setToday((t) => ({ ...emptyToday, geo: t.geo, error }));
+      if (!has("shoes") || !(has("dresses") || (has("tops") && has("pants")))) return active && setToday((t) => ({ ...emptyToday, geo: t.geo, error }));
       storeRef.current
         .generate({ style, harmony: "balanced", includeJacket: has("jackets"), anchorId: "" })
         .then((looks) => active && setToday((t) => ({ ...emptyToday, geo: t.geo, looks, index: looks.length ? day % looks.length : 0, error })))
@@ -271,6 +283,11 @@ function App() {
   const [lab, setLab] = useState<LabState>(emptyLab);
   useEffect(() => setLab(emptyLab), [store.wid]);
 
+  const leave = () => {
+    signOut();
+    go({ name: "home" });
+  };
+
   const app: AppApi = {
     store,
     go,
@@ -286,19 +303,37 @@ function App() {
     locate,
     pickAnother: () => setToday((t) => ({ ...t, index: (t.index + 1) % Math.max(1, t.looks.length) })),
     saveLook,
+    newWardrobe: () => setDialog(store.demo ? "auth" : "wardrobe"),
+    wear: store.demo ? "both" : (me?.wear ?? "both"),
     openInLab: (piece: Piece) => {
       setLab((l) => ({ ...l, picks: { ...l.picks, [piece.category]: piece.id } }));
       go({ name: "lab" });
     },
   };
 
-  const current = route.name === "piece" ? "wardrobe" : route.name;
+  // A wardrobe and its pieces live under "Wardrobes" in the navigation.
+  const current = route.name === "piece" || route.name === "wardrobe" ? "wardrobes" : route.name;
   const screen =
     route.name === "today" ? <Today app={app} />
     : route.name === "wardrobe" ? <Wardrobe app={app} />
     : route.name === "studio" ? <Studio app={app} />
     : route.name === "saved" ? <Saved app={app} />
     : route.name === "lab" ? <Lab app={app} lab={lab} setLab={setLab} />
+    : route.name === "wardrobes" ? <Wardrobes app={app} />
+    : route.name === "account" ? (
+      <AccountPage
+        store={store}
+        me={me}
+        setMe={setMe}
+        avatarUrl={avatarUrl}
+        bumpAvatar={() => setAvatarVersion((v) => v + 1)}
+        theme={theme}
+        setTheme={setTheme}
+        toast={setToastData}
+        signIn={() => setDialog("auth")}
+        signOut={leave}
+      />
+    )
     : route.name === "piece" ? <PieceDetail app={app} id={route.id} />
     : <Home app={app} />;
   const summary = store.wid ? store.summaries[store.wid] : undefined;
@@ -327,34 +362,26 @@ function App() {
             </a>
           ))}
         </nav>
-        <div className="nav">
-          <span className="t-eyebrow nav__label">{store.demo ? "Sample wardrobes" : "Wardrobes"}</span>
-          {store.wardrobes.map((w) => {
-            const s = store.summaries[w.id];
-            return (
-              <button key={w.id} className="nav__link" aria-pressed={w.id === store.wid} style={w.id === store.wid ? { fontWeight: 600 } : undefined} onClick={() => pickWardrobe(w.id)}>
-                <Dots colors={s?.colors ?? []} />
-                <span className="nav__text">{w.name}</span>
-                <span className="nav__count">{s?.count ?? ""}</span>
-              </button>
-            );
-          })}
-          {store.catalogLoading && <span className="t-foot muted nav__label">Loading wardrobes…</span>}
-          <button className="nav__link" style={{ color: "var(--label-2)" }} onClick={() => setDialog(store.demo ? "auth" : "wardrobe")}>
-            <Icon name="plus" />
-            New wardrobe
-          </button>
-        </div>
         <div className="sidebar__footer">
-          <button className="profile-chip" onClick={() => setDialog("account")}>
-            <span className="avatar">{store.demo ? <Icon name="out" /> : "Me"}</span>
-            <span style={{ display: "flex", flexDirection: "column", textAlign: "left" }}>
-              <span className="t-head" style={{ fontSize: 14 }}>
-                {store.demo ? "Sign in" : "Account"}
+          <button
+            className="profile-chip"
+            aria-current={route.name === "account" ? "page" : undefined}
+            onClick={() => (store.demo ? setDialog("auth") : go({ name: "account" }))}
+          >
+            <Avatar me={store.demo ? null : me} url={avatarUrl} />
+            <span style={{ display: "flex", flexDirection: "column", textAlign: "left", minWidth: 0 }}>
+              <span className="t-head nav__text" style={{ fontSize: 14 }}>
+                {store.demo ? "Sign in" : me ? displayName(me) : "Account"}
               </span>
-              <span className="t-cap muted">{store.demo ? "You’re viewing a sample wardrobe" : "Settings and sign out"}</span>
+              <span className="t-cap muted">{store.demo ? "You’re viewing a sample wardrobe" : "Account settings"}</span>
             </span>
           </button>
+          {!store.demo && (
+            <button className="nav__link sidebar__signout" onClick={leave}>
+              <Icon name="out" />
+              Sign out
+            </button>
+          )}
         </div>
       </aside>
 
@@ -368,8 +395,8 @@ function App() {
           <span className="wardrobe-switch__name">{store.wardrobe?.name ?? "Wardrobes"}</span>
           <Icon name="down" />
         </button>
-        <button className="glass glass-circle glass-press" aria-label={store.demo ? "Sign in" : "Account"} onClick={() => setDialog("account")}>
-          {store.demo ? <Icon name="out" /> : <span style={{ fontSize: 13, fontWeight: 650 }}>Me</span>}
+        <button className="glass glass-circle glass-press" aria-label={store.demo ? "Sign in" : "Account"} onClick={() => (store.demo ? setDialog("auth") : go({ name: "account" }))} style={{ overflow: "hidden" }}>
+          {store.demo ? <Icon name="out" /> : <Avatar me={me} url={avatarUrl} size={44} />}
         </button>
       </header>
 
@@ -417,51 +444,6 @@ function App() {
         }}
       />
       <RemoveDialog app={app} piece={removing} onClose={() => setRemoving(null)} />
-      <Dialog open={dialog === "account"} onClose={close} labelledBy="acc-t" width="min(420px, 100%)" top={96}>
-        <DialogHead id="acc-t" title={store.demo ? "Welcome" : "Account"} onClose={close} />
-        <div className="dialog__body" style={{ display: "flex", flexDirection: "column", gap: 18 }}>
-          <div className="field">
-            <span className="field__label" id="appearance">
-              Appearance
-            </span>
-            <Seg
-              label="Appearance"
-              radio
-              value={theme}
-              onChange={setTheme}
-              options={[
-                { value: "system", label: "System" },
-                { value: "light", label: "Light" },
-                { value: "dark", label: "Dark" },
-              ]}
-            />
-          </div>
-          <p className="t-foot muted">
-            {store.demo
-              ? "You’re exploring a sample wardrobe. Sign in to add your own pieces from photos and keep your outfits."
-              : "Signed in. Sessions last 12 hours on this browser tab."}
-          </p>
-        </div>
-        <div className="dialog__foot">
-          {store.demo ? (
-            <button className="btn btn--primary" onClick={() => setDialog("auth")}>
-              Sign in or create an account
-            </button>
-          ) : (
-            <button
-              className="btn btn--danger"
-              onClick={() => {
-                close();
-                signOut();
-                go({ name: "home" });
-              }}
-            >
-              <Icon name="out" />
-              Sign out
-            </button>
-          )}
-        </div>
-      </Dialog>
     </div>
   );
 }
