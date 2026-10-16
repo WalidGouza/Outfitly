@@ -22,6 +22,7 @@ from .config import settings
 from .database import make_engine
 from .models import Base, User, Wardrobe, Cloth, Outfit
 from .embeddings import EmbeddingClient, EmbeddingUnavailable
+from .text_cache import TextEmbeddingStore
 from .matching import rank, score_combo
 from . import attributes
 from .storage import ImageStorage, StorageUnavailable
@@ -35,7 +36,7 @@ passwords = PasswordHash.recommended()
 bearer = HTTPBearer()
 uploads = Path(s.upload_dir).resolve()
 image_storage = ImageStorage(s)
-embeddings = EmbeddingClient(s)
+embeddings = EmbeddingClient(s, store=TextEmbeddingStore(engine, s.embedding_model))
 logger = logging.getLogger(__name__)
 
 
@@ -54,6 +55,8 @@ async def lifespan(app):
     with engine.begin() as conn:
         # create_all never adds columns to an existing table: migrate databases from before garment types.
         conn.execute(text("ALTER TABLE public.clothes ADD COLUMN IF NOT EXISTS garment VARCHAR"))
+        conn.execute(text("ALTER TABLE public.outfits ADD COLUMN IF NOT EXISTS score INTEGER"))
+        conn.execute(text("ALTER TABLE public.outfits ADD COLUMN IF NOT EXISTS breakdown JSON"))
     with engine.begin() as conn:
         for table in Base.metadata.sorted_tables:
             # Browser access must pass through FastAPI authorization. No Data API policies.
@@ -405,8 +408,11 @@ def save(wid: str, body: Save, u=Depends(user), session=Depends(db)):
         {"tops", "pants", "shoes", "jackets"},
     ):
         raise HTTPException(400, "Choose one piece per category from this wardrobe")
+    # Scored once here (ML service down: left empty and filled in on a later listing).
+    scored = saved_score(items, body.style)
     o = Outfit(
-        wardrobe_id=wid, name=body.name, style=body.style, cloth_ids=body.cloth_ids
+        wardrobe_id=wid, name=body.name, style=body.style, cloth_ids=body.cloth_ids,
+        score=scored.get("score"), breakdown=scored.get("breakdown"),
     )
     session.add(o)
     session.commit()
@@ -417,19 +423,29 @@ def save(wid: str, body: Save, u=Depends(user), session=Depends(db)):
 def saved(wid: str, u=Depends(user), session=Depends(db)):
     owned(wid, u, session)
     looks = []
+    backfilled = False
     for o in session.scalars(select(Outfit).where(Outfit.wardrobe_id == wid)):
         items = [session.get(Cloth, cid) for cid in o.cloth_ids]
         # Skip outfits left incomplete by data from before piece removal existed.
-        if all(items):
-            looks.append(
-                {
-                    "id": o.id,
-                    "name": o.name,
-                    "style": o.style,
-                    "items": [cloth_json(c) for c in items],
-                    **saved_score(items, o.style),
-                }
-            )
+        if not all(items):
+            continue
+        if getattr(o, "score", None) is None:
+            # Saved before scores were stored: score it once and keep the result.
+            scored = saved_score(items, o.style)
+            if scored:
+                o.score, o.breakdown = scored["score"], scored["breakdown"]
+                backfilled = True
+        looks.append(
+            {
+                "id": o.id,
+                "name": o.name,
+                "style": o.style,
+                "items": [cloth_json(c) for c in items],
+                **({"score": o.score, "breakdown": o.breakdown} if getattr(o, "score", None) is not None else {}),
+            }
+        )
+    if backfilled:
+        session.commit()
     return looks
 
 

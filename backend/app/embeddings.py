@@ -15,11 +15,14 @@ class EmbeddingUnavailable(Exception):
 
 
 class EmbeddingClient:
-    def __init__(self, settings, transport=None):
+    def __init__(self, settings, transport=None, store=None):
         self.url = settings.ml_service_url
         self.token = settings.ml_service_token.get_secret_value()
         self.timeout = settings.ml_service_timeout
         self.transport = transport
+        # Optional persistent store for text embeddings (text_cache.TextEmbeddingStore),
+        # checked before the ML service so restarts don't trigger new paid requests.
+        self.store = store
         # Generation queries come from a handful of fixed style prompts.
         self.text = lru_cache(maxsize=64)(self._text)
         # Attribute labels are fixed, so they are embedded once per process.
@@ -36,13 +39,26 @@ class EmbeddingClient:
         return self._vector(data.get("embedding"))
 
     def _text(self, value: str):
-        return self._vector(self._request("/embed/text", json={"text": value}).get("embedding"))
+        stored = self.store.get([value]).get(value) if self.store else None
+        if stored is not None:
+            return self._vector(stored)
+        vector = self._vector(self._request("/embed/text", json={"text": value}).get("embedding"))
+        if self.store:
+            self.store.put({value: vector})
+        return vector
 
     def _texts(self, values: tuple[str, ...]):
-        vectors = self._request("/embed/texts", json={"texts": list(values)}).get("embeddings")
-        if not isinstance(vectors, list) or len(vectors) != len(values):
-            raise EmbeddingUnavailable("Image analysis service returned an invalid response")
-        return [self._vector(v) for v in vectors]
+        found = self.store.get(values) if self.store else {}
+        missing = [v for v in dict.fromkeys(values) if v not in found]
+        if missing:
+            vectors = self._request("/embed/texts", json={"texts": missing}).get("embeddings")
+            if not isinstance(vectors, list) or len(vectors) != len(missing):
+                raise EmbeddingUnavailable("Image analysis service returned an invalid response")
+            fresh = {text: self._vector(v) for text, v in zip(missing, vectors)}
+            if self.store:
+                self.store.put(fresh)
+            found = {**found, **fresh}
+        return [self._vector(found[v]) for v in values]
 
     def _request(self, path, headers=None, **body):
         if not self.configured:

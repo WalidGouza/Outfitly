@@ -23,14 +23,15 @@
   --ink-hover: #343A32;
   --tint: rgba(30, 34, 29, 0.07);
   --coral: #E8644A;
-  /* Extended palette. Coral is reserved for the brand mark and the "you are here" collar.
-     Sage (actions), Moss (on states) and Oat (feature surfaces) carry the UI. */
+  /* Extended palette. Coral marks the brand, the "you are here" collar and the main buttons.
+     Sage (accents), Moss (on states) and Oat (feature surfaces) carry the rest of the UI. */
   --sage: #A9B99B;
   --moss: #6C8160;
   --oat: #EADFCB;
-  --primary: var(--sage);
+  /* Main buttons are Collar Coral with ink text (4.9:1; white on coral is only 3.3:1). */
+  --primary: var(--coral);
   --on-primary: #1E221D;
-  --primary-hover: #B7C5AA;
+  --primary-hover: #EE7C64;
   --sel-bg: #FFFFFF;
   --sel-fg: #1E221D;
   --sel-ring: #1E221D;
@@ -89,9 +90,9 @@
   --ink-hover: #FFFFFF;
   --tint: rgba(246, 242, 234, 0.1);
   /* Dark mode: Wardrobe Ink surfaces, linen for selection, sage stays the main action */
-  --primary: #A9B99B;
+  --primary: #E8644A;
   --on-primary: #1E221D;
-  --primary-hover: #BAC8AD;
+  --primary-hover: #EE7C64;
   --sel-bg: #F6F2EA;
   --sel-fg: #1E221D;
   --sel-ring: #F6F2EA;

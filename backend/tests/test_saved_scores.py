@@ -14,7 +14,10 @@ def piece(id, category, color, texture="cotton"):
 
 
 class Session:
-    def __init__(self):
+    def __init__(self, score=None):
+        self.commits = 0
+        self.outfits = [SimpleNamespace(id="o1", name="Look", style="Everyday", cloth_ids=["t", "p", "s"], score=score,
+                                        breakdown={"semantic": 50, "color": 50, "texture": 50} if score is not None else None)]
         self.pieces = {p.id: p for p in (
             piece("t", "tops", "#eeeeee"), piece("p", "pants", "#2e3a52", "denim"), piece("s", "shoes", "#7a5235", "leather"),
         )}
@@ -26,7 +29,10 @@ class Session:
             return self.pieces.get(ident)
 
     def scalars(self, query):
-        return iter([SimpleNamespace(id="o1", name="Look", style="Everyday", cloth_ids=["t", "p", "s"])])
+        return iter(self.outfits)
+
+    def commit(self):
+        self.commits += 1
 
 
 @pytest.fixture
@@ -52,3 +58,32 @@ def test_saved_outfits_still_list_when_ml_is_down(client, monkeypatch):
     monkeypatch.setattr(main.embeddings, "text", down)
     look = client.get("/wardrobes/w/outfits").json()[0]
     assert look["id"] == "o1" and "score" not in look
+
+
+def test_stored_scores_are_used_without_the_ml_service(monkeypatch):
+    def down(value):
+        raise AssertionError("listing must not call the ML service")
+
+    monkeypatch.setattr(main.embeddings, "text", down)
+    main.app.dependency_overrides[main.db] = lambda: Session(score=77)
+    main.app.dependency_overrides[main.user] = lambda: SimpleNamespace(id="owner")
+    try:
+        look = TestClient(main.app).get("/wardrobes/w/outfits").json()[0]
+    finally:
+        main.app.dependency_overrides.clear()
+    assert look["score"] == 77
+
+
+def test_old_outfits_are_scored_once_and_kept(monkeypatch):
+    calls = []
+    monkeypatch.setattr(main.embeddings, "text", lambda value: calls.append(value) or [1.0] + [0.0] * 511)
+    session = Session()
+    main.app.dependency_overrides[main.db] = lambda: session
+    main.app.dependency_overrides[main.user] = lambda: SimpleNamespace(id="owner")
+    try:
+        first = TestClient(main.app).get("/wardrobes/w/outfits").json()[0]
+        second = TestClient(main.app).get("/wardrobes/w/outfits").json()[0]
+    finally:
+        main.app.dependency_overrides.clear()
+    assert first["score"] == second["score"] and session.outfits[0].score == first["score"]
+    assert len(calls) == 1 and session.commits == 1

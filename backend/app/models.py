@@ -1,5 +1,5 @@
 from uuid import uuid4
-from sqlalchemy import String, ForeignKey, JSON, Index
+from sqlalchemy import String, ForeignKey, JSON, Index, Integer
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from pgvector.sqlalchemy import Vector
 
@@ -57,3 +57,17 @@ class Outfit(Base):
     name: Mapped[str] = mapped_column(String)
     style: Mapped[str] = mapped_column(String)
     cloth_ids: Mapped[list] = mapped_column(JSON)
+    # Match score stored when saved, so listing saved outfits never needs the ML service.
+    # Null for outfits saved before scores were stored (filled in on first listing).
+    score: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    breakdown: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+
+
+class TextEmbedding(Base):
+    """Embeddings of the app's fixed phrases (style prompts, weather queries, detection labels),
+    kept across restarts so they are paid for on the ML service only once per model."""
+
+    __tablename__ = "text_embeddings"
+    model: Mapped[str] = mapped_column(String, primary_key=True)
+    text: Mapped[str] = mapped_column(String, primary_key=True)
+    embedding: Mapped[list] = mapped_column(Vector(512))

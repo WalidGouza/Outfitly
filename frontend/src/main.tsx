@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "./ow.css";
 import "./app.css";
+import { KEEP_OOTD_UNSEEN_FOR_TESTING } from "./testing";
 import { Logo, LogoSymbol } from "./brand";
 import { resolvedTheme, validTheme, type Theme } from "./theme";
 import { styles, TOKEN_KEY, useWardrobeStore, type Coords, type Look, type Piece } from "./store";
@@ -40,6 +41,7 @@ const nav: { route: Route["name"]; label: string; short: string; icon: IconName;
   { route: "saved", label: "Saved", short: "Saved", icon: "saved", tab: true },
 ];
 const tabs = nav.filter((n) => n.tab);
+const SEEN_KEY = "outfitly-ootd-seen";
 const emptyToday: TodayState = { looks: [], index: 0, busy: false, error: "", weather: null, advice: [], missing: [], geo: "idle" };
 
 const dayOfYear = () => {
@@ -240,6 +242,29 @@ function App() {
     else setDialog("add");
   }, [store.demo, store.wid]);
 
+  // Has the user opened today's outfit yet? Keyed by local date, wardrobe and the outfit itself,
+  // so a new day, another wardrobe or a different pick counts as new again.
+  const todayLook = today.looks[today.index];
+  const todayKey = todayLook && store.wid
+    ? `${new Date().toLocaleDateString("en-CA")}|${store.wid}|${todayLook.items.map((i) => i.id).sort().join()}`
+    : "";
+  const [seenKey, setSeenKey] = useState(() => {
+    try {
+      return localStorage.getItem(SEEN_KEY) ?? "";
+    } catch {
+      return "";
+    }
+  });
+  useEffect(() => {
+    if (KEEP_OOTD_UNSEEN_FOR_TESTING || route.name !== "today" || !todayKey || todayKey === seenKey) return;
+    setSeenKey(todayKey);
+    try {
+      localStorage.setItem(SEEN_KEY, todayKey);
+    } catch {
+      // Private windows can refuse storage; it still counts as seen for this visit.
+    }
+  }, [route.name, todayKey, seenKey]);
+
   const app: AppApi = {
     store,
     go,
@@ -251,6 +276,7 @@ function App() {
     setStudio,
     runStudio,
     today,
+    todayUnseen: !!todayKey && todayKey !== seenKey,
     locate,
     pickAnother: () => setToday((t) => ({ ...t, index: (t.index + 1) % Math.max(1, t.looks.length) })),
     saveLook,

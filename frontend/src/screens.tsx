@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type DragEvent } from "react";
 import { colorChoices, colorName, verdict } from "./colors";
 import { Select } from "./Select";
+import { KEEP_OOTD_UNSEEN_FOR_TESTING } from "./testing";
 import { StudioLoopVideo } from "./StudioLoopVideo";
 import {
   ColorLabel,
@@ -52,6 +53,8 @@ export type App = {
   openAdd: () => void;
   askRemove: (piece: Piece) => void;
   requireAccount: () => void;
+  /** Today's outfit exists and the user hasn't opened it yet: Home announces it. */
+  todayUnseen: boolean;
   studio: StudioState;
   setStudio: (patch: Partial<StudioState>) => void;
   runStudio: (patch?: Partial<StudioState>) => void;
@@ -80,8 +83,28 @@ function ErrorNote({ text }: { text: string }) {
 }
 
 // ── Home ────────────────────────────────────────────────────────────────────
+// The outfit-of-the-day card makes an entrance on the first visit of each calendar day only.
+const LAST_VISIT_KEY = "outfitly_last_login_date";
+const localDay = () => new Date().toLocaleDateString("en-CA"); // YYYY-MM-DD in the user's own time zone
+
 export function Home({ app }: { app: App }) {
   const { store, go } = app;
+  // Decided before the first paint, so the card never flashes in and then restarts its entrance.
+  const [entrance] = useState(() => {
+    if (KEEP_OOTD_UNSEEN_FOR_TESTING) return true;
+    try {
+      return localStorage.getItem(LAST_VISIT_KEY) !== localDay();
+    } catch {
+      return false;
+    }
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem(LAST_VISIT_KEY, localDay());
+    } catch {
+      // Storage unavailable (private window): the entrance may simply play again next visit.
+    }
+  }, []);
   const look = app.today.looks[app.today.index];
   const recent = [...store.pieces].reverse().slice(0, 6);
   return (
@@ -104,14 +127,29 @@ export function Home({ app }: { app: App }) {
         </div>
       </div>
       <div className="tiles stagger">
-        <button className="tile tile--ink tile--today" onClick={() => go({ name: "today" })}>
+        <button
+          className={`tile tile--ink tile--today${look ? " tile--liquid" : ""}${app.todayUnseen ? " tile--new" : ""}${entrance ? " tile--enter" : ""}`}
+          onClick={() => go({ name: "today" })}
+        >
+          {/* Liquid glass: the outfit's own colours, blurred and drifting, under frosted panes. */}
+          {look && (
+            <span className="ootd-liquid" aria-hidden="true">
+              {ordered(look.items).map((p) => (
+                <i key={p.id} style={{ background: p.color }} />
+              ))}
+            </span>
+          )}
+          {(entrance || app.todayUnseen) && <span className="ootd-sweep" aria-hidden="true" />}
           <span className="tile--today__text">
-            <span className="tile__icon">
-              <Icon name="sun" />
+            <span className="tile--today__top">
+              <span className={`tile__icon${look ? " glass" : ""}`}>
+                <Icon name="sun" />
+              </span>
+              {app.todayUnseen && <span className="new-badge">New today</span>}
             </span>
             <span className="t-title">Outfit of the day</span>
             {app.today.weather && (
-              <span className="tile-weather">
+              <span className={`tile-weather${look ? " glass" : ""}`}>
                 <Icon name="sun" />
                 {app.today.weather.temp_now}°C, {app.today.weather.summary.toLowerCase()}
                 {app.today.weather.place ? ` ${app.today.weather.place.startsWith("Near ") ? "near" : "in"} ${app.today.weather.place.replace(/^Near /, "").split(",")[0]}` : ""}
@@ -131,8 +169,8 @@ export function Home({ app }: { app: App }) {
           </span>
           {look && (
             <span className="tile--today__pieces">
-              {ordered(look.items).map((p) => (
-                <span key={p.id} className="inset-media">
+              {ordered(look.items).map((p, i) => (
+                <span key={p.id} className="inset-media glass" style={{ ["--i" as string]: i }}>
                   <PieceArt piece={p} />
                 </span>
               ))}

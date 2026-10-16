@@ -13,3 +13,10 @@ os.environ["APP_ENV"] = "dev"
 os.environ["ML_SERVICE_URL"] = ""
 os.environ["FRONTEND_ORIGIN"] = "http://localhost:5173"
 os.environ["FRONTEND_ORIGINS"] = ""
+
+
+def pytest_configure(config):
+    # Unit tests never reach a database: keep text embeddings in memory only.
+    from app import main
+
+    main.embeddings.store = None

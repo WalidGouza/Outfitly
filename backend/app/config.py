@@ -34,6 +34,9 @@ class Settings(BaseSettings):
     ml_service_url: str = ""
     ml_service_token: SecretStr = SecretStr("")
     ml_service_timeout: float = 90
+    # Must match EMBEDDING_MODEL on the ML service: stored text embeddings are keyed by it,
+    # so changing the model recomputes them instead of mixing vectors from two models.
+    embedding_model: str = "sentence-transformers/clip-ViT-B-32"
     business_rules_json: str
     # Outfit of the day: forecast source and weather rules (empty = built-in defaults, see weather.py).
     weather_api_url: str = "https://api.open-meteo.com/v1/forecast"
