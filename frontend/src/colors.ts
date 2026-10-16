@@ -85,6 +85,27 @@ export function colorScore(a: string, b: string, harmony = "balanced") {
   return rules.unmatched;
 }
 
+export type ColorRelation = "neutral" | "analogous" | "complementary" | "triadic" | "clash";
+
+/** Which rule colorScore applies to a pair, so descriptions explain the same thing the score measures. */
+export function colorRelation(a: string, b: string): ColorRelation {
+  const x = hsv(a), y = hsv(b);
+  if (Math.min(x.s, y.s) < rules.neutralSaturation || Math.min(x.v, y.v) < rules.neutralValueLow) return "neutral";
+  const angle = Math.min(Math.abs(x.h - y.h), 1 - Math.abs(x.h - y.h)) * 360;
+  if (angle <= rules.analogous) return "analogous";
+  if (Math.abs(angle - 180) <= rules.tolerance) return "complementary";
+  if (Math.abs(angle - 120) <= rules.tolerance) return "triadic";
+  return "clash";
+}
+
+/** Neutral (greys, navies, creams, browns that read as neutral), warm or cool. */
+export function colorFamily(hex: string): "neutral" | "warm" | "cool" {
+  const c = hsv(hex);
+  if (c.s < rules.neutralSaturation || c.v < rules.neutralValueLow) return "neutral";
+  const deg = c.h * 360;
+  return deg < 70 || deg >= 330 ? "warm" : "cool";
+}
+
 export function textureScore(a: string, b: string) {
   if (a === b) return rules.sameTexture;
   return rules.pairs[`${a}:${b}`] ?? rules.pairs[`${b}:${a}`] ?? rules.unknownTexture;

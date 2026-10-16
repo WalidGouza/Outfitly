@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "./ow.css";
 import "./app.css";
+import { emptyLab, Lab, type LabState } from "./lab";
 import { KEEP_OOTD_UNSEEN_FOR_TESTING } from "./testing";
 import { Logo, LogoSymbol } from "./brand";
 import { resolvedTheme, validTheme, type Theme } from "./theme";
@@ -24,11 +25,11 @@ import {
   type TodayState,
 } from "./screens";
 
-// ── Routing: #/, #/today, #/wardrobe, #/studio, #/saved, #/piece/<id> ──────
+// ── Routing: #/, #/today, #/wardrobe, #/studio, #/lab, #/saved, #/piece/<id> ──────
 function parse(hash: string): Route {
   const [, name, id] = hash.replace(/^#/, "").split("/");
   if (name === "piece" && id) return { name: "piece", id: decodeURIComponent(id) };
-  if (name === "today" || name === "wardrobe" || name === "studio" || name === "saved") return { name };
+  if (name === "today" || name === "wardrobe" || name === "studio" || name === "saved" || name === "lab") return { name };
   return { name: "home" };
 }
 const href = (r: Route) => (r.name === "piece" ? `#/piece/${encodeURIComponent(r.id)}` : r.name === "home" ? "#/" : `#/${r.name}`);
@@ -38,6 +39,7 @@ const nav: { route: Route["name"]; label: string; short: string; icon: IconName;
   { route: "today", label: "Today", short: "Today", icon: "today", tab: false },
   { route: "wardrobe", label: "Wardrobe", short: "Wardrobe", icon: "wardrobe", tab: true },
   { route: "studio", label: "Outfit studio", short: "Studio", icon: "studio", tab: true },
+  { route: "lab", label: "Outfit lab", short: "Lab", icon: "lab", tab: false },
   { route: "saved", label: "Saved", short: "Saved", icon: "saved", tab: true },
 ];
 const tabs = nav.filter((n) => n.tab);
@@ -265,6 +267,10 @@ function App() {
     }
   }, [route.name, todayKey, seenKey]);
 
+  // Outfit lab picks live here so they survive a visit to a piece's page; a new wardrobe starts empty.
+  const [lab, setLab] = useState<LabState>(emptyLab);
+  useEffect(() => setLab(emptyLab), [store.wid]);
+
   const app: AppApi = {
     store,
     go,
@@ -280,6 +286,10 @@ function App() {
     locate,
     pickAnother: () => setToday((t) => ({ ...t, index: (t.index + 1) % Math.max(1, t.looks.length) })),
     saveLook,
+    openInLab: (piece: Piece) => {
+      setLab((l) => ({ ...l, picks: { ...l.picks, [piece.category]: piece.id } }));
+      go({ name: "lab" });
+    },
   };
 
   const current = route.name === "piece" ? "wardrobe" : route.name;
@@ -288,6 +298,7 @@ function App() {
     : route.name === "wardrobe" ? <Wardrobe app={app} />
     : route.name === "studio" ? <Studio app={app} />
     : route.name === "saved" ? <Saved app={app} />
+    : route.name === "lab" ? <Lab app={app} lab={lab} setLab={setLab} />
     : route.name === "piece" ? <PieceDetail app={app} id={route.id} />
     : <Home app={app} />;
   const summary = store.wid ? store.summaries[store.wid] : undefined;

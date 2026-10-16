@@ -395,19 +395,25 @@ class Save(Name):
     cloth_ids: list[str] = Field(min_length=3, max_length=4)
 
 
-@app.post("/wardrobes/{wid}/outfits")
-def save(wid: str, body: Save, u=Depends(user), session=Depends(db)):
-    owned(wid, u, session)
+def outfit_pieces(wid, cloth_ids, session):
+    """The pieces of an outfit: one top, pants and shoes (plus an optional jacket) from this wardrobe."""
     items = list(
         session.scalars(
-            select(Cloth).where(Cloth.wardrobe_id == wid, Cloth.id.in_(body.cloth_ids))
+            select(Cloth).where(Cloth.wardrobe_id == wid, Cloth.id.in_(cloth_ids))
         )
     )
-    if len(items) != len(body.cloth_ids) or set(c.category for c in items) not in (
+    if len(items) != len(cloth_ids) or set(c.category for c in items) not in (
         {"tops", "pants", "shoes"},
         {"tops", "pants", "shoes", "jackets"},
     ):
         raise HTTPException(400, "Choose one piece per category from this wardrobe")
+    return items
+
+
+@app.post("/wardrobes/{wid}/outfits")
+def save(wid: str, body: Save, u=Depends(user), session=Depends(db)):
+    owned(wid, u, session)
+    items = outfit_pieces(wid, body.cloth_ids, session)
     # Scored once here (ML service down: left empty and filled in on a later listing).
     scored = saved_score(items, body.style)
     o = Outfit(
@@ -476,6 +482,36 @@ def similarity(items, text_query):
 # ── Outfit of the day, from the weather ─────────────────────────────────────
 Style = Literal["Everyday", "Minimal", "Smart casual", "Streetwear", "Evening"]
 WEIGHT_OF_WEATHER = 0.35
+
+
+STYLES = ["Everyday", "Minimal", "Smart casual", "Streetwear", "Evening"]
+
+
+class Rate(BaseModel):
+    cloth_ids: list[str] = Field(min_length=3, max_length=4)
+    # "Auto" scores the outfit in every style and reports the one it fits best.
+    style: Literal["Auto", "Everyday", "Minimal", "Smart casual", "Streetwear", "Evening"] = "Auto"
+
+
+@app.post("/wardrobes/{wid}/rate")
+def rate(wid: str, body: Rate, u=Depends(user), session=Depends(db)):
+    """Outfit lab: the match score of an outfit the user put together themselves."""
+    owned(wid, u, session)
+    items = outfit_pieces(wid, body.cloth_ids, session)
+    candidates = STYLES if body.style == "Auto" else [body.style]
+    try:
+        scored = [
+            {"style": style, **score_combo(items, similarity(items, f"A {style} fashion outfit with coordinated textures"), s.rules)}
+            for style in candidates
+        ]
+        estimated = False
+    except EmbeddingUnavailable:
+        # Without the ML service, colour and fabric are still exact; meaning is a neutral estimate.
+        style = "Everyday" if body.style == "Auto" else body.style
+        scored = [{"style": style, **score_combo(items, {c.id: 0.75 for c in items}, s.rules)}]
+        estimated = True
+    best = max(scored, key=lambda r: r["score"])
+    return {**best, "estimated": estimated, "items": [cloth_json(c) for c in items]}
 
 
 class Place(BaseModel):

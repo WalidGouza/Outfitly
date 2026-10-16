@@ -51,6 +51,7 @@ export type Suggestion = {
   style: string | null;
   detected: boolean;
 };
+export type Rating = { score: number; breakdown: Breakdown; style: string; estimated?: boolean };
 export type GenerateOptions = { style: string; harmony: string; includeJacket: boolean; anchorId: string };
 export type Summary = { count: number; colors: string[] };
 
@@ -324,6 +325,19 @@ export function useWardrobeStore(token: string, onExpired: () => void) {
     [demo, call, wid, pieces],
   );
 
+  /** Outfit lab: rate an outfit the user put together. "Auto" finds the style it fits best. */
+  const rate = useCallback(
+    async (items: Piece[], style: string): Promise<Rating> => {
+      if (!demo)
+        return call<Rating>(`/wardrobes/${wid}/rate`, "POST", { cloth_ids: items.map((i) => i.id), style });
+      const candidates = style === "Auto" ? styles : [style];
+      return candidates
+        .map((s) => ({ style: s, ...scoreLook(items, s) }))
+        .reduce((best, r) => (r.score > best.score ? r : best));
+    },
+    [demo, call, wid],
+  );
+
   /** Saved outfits of any wardrobe (the Saved screen shows them all). */
   const loadSaved = useCallback(
     async (target: string, signal?: AbortSignal): Promise<Look[]> => {
@@ -377,6 +391,7 @@ export function useWardrobeStore(token: string, onExpired: () => void) {
     removePiece,
     generate,
     today,
+    rate,
     saveLook,
     unsaveLook,
     isSaved,

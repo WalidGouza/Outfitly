@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type DragEvent } from "react";
 import { colorChoices, colorName, verdict } from "./colors";
 import { Select } from "./Select";
 import { KEEP_OOTD_UNSEEN_FOR_TESTING } from "./testing";
+import { describePiece } from "./describe";
 import { StudioLoopVideo } from "./StudioLoopVideo";
 import {
   ColorLabel,
@@ -22,7 +23,7 @@ import {
 import { categories, garmentTypes, styles, textures, type Category, type Look, type MissingPiece, type Piece, type Store, type Weather } from "./store";
 
 export type Route =
-  | { name: "home" | "today" | "wardrobe" | "studio" | "saved" }
+  | { name: "home" | "today" | "wardrobe" | "studio" | "saved" | "lab" }
   | { name: "piece"; id: string };
 
 export type StudioState = {
@@ -62,6 +63,8 @@ export type App = {
   pickAnother: () => void;
   locate: () => void;
   saveLook: (look: Look) => void;
+  /** Puts a piece in its slot in the Outfit lab and opens the lab. */
+  openInLab: (piece: Piece) => void;
 };
 
 const plural = (n: number, one: string, many = one + "s") => `${n} ${n === 1 ? one : many}`;
@@ -183,6 +186,7 @@ export function Home({ app }: { app: App }) {
         <Tile icon="wardrobe" title="Wardrobe" text={`${plural(store.pieces.length, "piece")}, every colour named.`} onClick={() => go({ name: "wardrobe" })} />
         <Tile icon="studio" title="Outfit studio" text="Pick a style and colour direction." onClick={() => go({ name: "studio" })} />
         <Tile icon="saved" title="Saved" text={`${plural(store.saved.length, "look")} kept for later.`} onClick={() => go({ name: "saved" })} />
+        <Tile icon="lab" title="Outfit lab" text="Mix your own outfit and get a rating." onClick={() => go({ name: "lab" })} />
         <Tile icon="camera" title="Add a piece" text="Snap it and we fill in the details." onClick={app.openAdd} />
       </div>
       <section className="section">
@@ -209,7 +213,7 @@ export function Home({ app }: { app: App }) {
   );
 }
 
-function Tile({ icon, title, text, onClick }: { icon: "wardrobe" | "studio" | "saved" | "camera"; title: string; text: string; onClick: () => void }) {
+function Tile({ icon, title, text, onClick }: { icon: "wardrobe" | "studio" | "saved" | "camera" | "lab"; title: string; text: string; onClick: () => void }) {
   return (
     <button className="tile" onClick={onClick}>
       <span className="tile__icon">
@@ -616,6 +620,10 @@ export function PieceDetail({ app, id }: { app: App; id: string }) {
                 <Icon name="studio" />
                 Outfits with this
               </button>
+              <button className="btn" onClick={() => app.openInLab(piece)}>
+                <Icon name="lab" />
+                Try in the lab
+              </button>
               <button className="btn btn--danger" onClick={() => (store.demo ? app.requireAccount() : app.askRemove(piece))}>
                 <Icon name="trash" />
                 Remove
@@ -624,6 +632,7 @@ export function PieceDetail({ app, id }: { app: App; id: string }) {
           </div>
         </section>
       </div>
+      <AboutPiece app={app} piece={piece} />
       <section className="section" style={{ gap: 16 }}>
         <div className="section__head">
           <h2 className="t-title">
@@ -651,6 +660,45 @@ export function PieceDetail({ app, id }: { app: App; id: string }) {
         )}
       </section>
     </div>
+  );
+}
+
+/** "About this piece": a written description and the pieces it pairs best with. */
+function AboutPiece({ app, piece }: { app: App; piece: Piece }) {
+  const about = describePiece(piece, app.store.pieces);
+  return (
+    <section className="section about" aria-labelledby="about-t">
+      <h2 className="t-title" id="about-t">
+        About this piece
+      </h2>
+      <div className="about__grid">
+        <div className="card card--pad about__text">
+          <p className="t-head">{about.summary}</p>
+          {about.paragraphs.map((t) => (
+            <p key={t} className="muted">
+              {t}
+            </p>
+          ))}
+        </div>
+        {about.goesWith.length > 0 && (
+          <div className="card card--pad about__pairs">
+            <span className="t-eyebrow">Goes well with</span>
+            {about.goesWith.map((p) => (
+              <button key={p.id} className="about__pair" onClick={() => app.go({ name: "piece", id: p.id })}>
+                <span className="about__thumb">
+                  <PieceArt piece={p} />
+                </span>
+                <span style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
+                  <span className="t-head">{p.name}</span>
+                  <ColorLabel hex={p.color} className="t-foot muted" />
+                </span>
+                <Icon name="chevron" />
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    </section>
   );
 }
 

@@ -25,6 +25,7 @@ const paths = {
   play: ["M8 5.5v13l10-6.5z"],
   pin: ["M12 21s-6.5-5.8-6.5-11a6.5 6.5 0 0 1 13 0c0 5.2-6.5 11-6.5 11z", "M12 7.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5z"],
   pause: ["M8 5h2.5v14H8z", "M13.5 5H16v14h-2.5z"],
+  lab: ["M9 3h6", "M10 3v6l-5.2 9.1A2 2 0 0 0 6.5 21h11a2 2 0 0 0 1.7-2.9L14 9V3", "M7.5 15h9"],
 };
 export type IconName = keyof typeof paths;
 export function Icon({ name, filled, style }: { name: IconName; filled?: boolean; style?: React.CSSProperties }) {
