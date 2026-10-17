@@ -24,6 +24,9 @@ class Session:
     def delete(self, item):
         self.deleted.append(item)
 
+    def flush(self):
+        pass
+
     def commit(self):
         self.commits += 1
 
@@ -102,3 +105,46 @@ def test_deleting_the_account_needs_the_password_and_removes_everything(account)
     assert r.status_code == 200 and r.json()["removed_photos"] == 3
     assert u in session.deleted and len(session.deleted) == 5  # outfit, 2 pieces, wardrobe, user
     assert sorted(store.removed) == ["a.jpg", "avatar.jpg", "b.jpg"]
+
+
+def test_deleting_an_account_respects_foreign_keys_on_a_real_database(monkeypatch):
+    # The fake session above can't see delete order. On a real database the ORM, which has no
+    # relationships to go by, deleted the user before its wardrobes and the foreign key refused it.
+    from sqlalchemy import create_engine, event, func, select
+    from sqlalchemy.orm import Session as DbSession
+    from app.models import Base, Suggestion, SuggestionEvent, User
+
+    from sqlalchemy.pool import StaticPool
+
+    # One in-memory database shared with the thread FastAPI runs the endpoint in.
+    engine = create_engine("sqlite://", poolclass=StaticPool, connect_args={"check_same_thread": False})
+    event.listen(engine, "connect", lambda conn, _: conn.execute("PRAGMA foreign_keys=ON"))
+    Base.metadata.create_all(engine)
+    with DbSession(engine) as s:
+        s.add(User(id="u1", email="walid@example.com", password_hash=main.passwords.hash("correct horse battery")))
+        s.flush()
+        s.add(Wardrobe(id="w1", user_id="u1", name="Mine"))
+        s.flush()
+        s.add_all([
+            Cloth(id="c1", wardrobe_id="w1", name="Tee", category="tops", texture="cotton", style="Everyday",
+                  color="#000000", image="a.jpg", embedding=[0.0] * 512),
+            Outfit(id="o1", wardrobe_id="w1", name="Mon", style="Everyday", cloth_ids=["c1"]),
+            Suggestion(wardrobe_id="w1", fingerprint="f", rank=0, key="k", value=1, data={}),
+            SuggestionEvent(user_id="u1", action="saved", key="k", spec={}, context={}),
+        ])
+        s.commit()
+
+    session = DbSession(engine)
+    store = Store()
+    monkeypatch.setattr(main, "image_storage", store)
+    main.app.dependency_overrides[main.db] = lambda: session
+    main.app.dependency_overrides[main.user] = lambda: session.get(User, "u1")
+    try:
+        r = TestClient(main.app).request("DELETE", "/me", json={"password": "correct horse battery"})
+        assert r.status_code == 200, r.text
+        assert store.removed == ["a.jpg"]
+        for model in (User, Wardrobe, Cloth, Outfit, Suggestion, SuggestionEvent):
+            assert session.scalar(select(func.count()).select_from(model)) == 0, model.__name__
+    finally:
+        main.app.dependency_overrides.clear()
+        session.close()

@@ -364,8 +364,12 @@ def delete_account(body: Confirm, u=Depends(user), session=Depends(db)):
             session.delete(row)
     for row in session.scalars(select(SuggestionEvent).where(SuggestionEvent.user_id == u.id)):
         session.delete(row)
+    # The models have no relationships, so the ORM doesn't know rows depend on each other and may
+    # delete a user before its wardrobes. Flushing level by level keeps the foreign keys satisfied.
+    session.flush()
     for w in wardrobes:
         session.delete(w)
+    session.flush()
     session.delete(u)
     session.commit()
     for filename in photos:
