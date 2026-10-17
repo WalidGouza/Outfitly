@@ -68,6 +68,10 @@ export type App = {
   wear: Wear;
   /** Opens the new-wardrobe dialog (sign-in first for the sample wardrobe). */
   newWardrobe: () => void;
+  /** Opens an outfit's details: its description and pieces that would raise its score. */
+  openOutfit: (look: Look) => void;
+  /** Loads an outfit's pieces into the Outfit lab and opens it. */
+  openLookInLab: (look: Look) => void;
   /** Puts a piece in its slot in the Outfit lab and opens the lab. */
   openInLab: (piece: Piece) => void;
 };
@@ -756,6 +760,7 @@ export function PieceDetail({ app, id }: { app: App; id: string }) {
               <OutfitCard
                 key={l.id}
                 look={l}
+                onOpen={() => app.openOutfit(l)}
                 facets={false}
                 open={(p) => app.go({ name: "piece", id: p.id })}
                 tag={<span className="chip chip--sm">{l.style}</span>}
@@ -995,6 +1000,7 @@ export function Studio({ app }: { app: App }) {
                   <OutfitCard
                     key={l.items.map((i) => i.id).join()}
                     look={l}
+                    onOpen={() => app.openOutfit(l)}
                     open={(p) => app.go({ name: "piece", id: p.id })}
                     tag={layered(l) ? <span className="chip chip--sm">Layered</span> : undefined}
                   >
@@ -1070,6 +1076,7 @@ export function Saved({ app }: { app: App }) {
             <OutfitCard
               key={look.id}
               look={look}
+              onOpen={() => app.openOutfit(look)}
               facets={false}
               label={look.style}
               sub={look.score !== undefined ? `${w.name}, ${look.score}% match` : w.name}

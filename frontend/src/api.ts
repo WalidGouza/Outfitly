@@ -26,18 +26,31 @@ export function resolveApiUrl(raw?: string, appEnv: "dev" | "prod" = "dev"): str
   }
   return value;
 }
+// What users see in production (APP_ENV=prod). Development keeps the detailed,
+// setup-oriented messages below, which name the API, its address and the settings to check.
+export const FRIENDLY = {
+  offline: "Can’t reach Outfitly right now. Check your connection and try again.",
+  server: "Something went wrong on our side. Please try again in a moment.",
+  invalid: "Some details aren’t valid. Please check them and try again.",
+  generic: "Something went wrong. Please try again.",
+};
+
 export async function requestJson(
   url: string,
   options: RequestInit = {},
   transport: typeof fetch = fetch,
+  appEnv: "dev" | "prod" = "dev",
 ) {
+  const dev = appEnv === "dev";
   let response: Response;
   try {
     response = await transport(url, options);
   } catch (error) {
     if (options.signal?.aborted) throw error;
     throw new Error(
-      `Cannot reach the Python API at ${url.split("/auth/")[0]}. Start FastAPI, check VITE_API_URL and FRONTEND_ORIGINS, and use HTTPS for the API if the frontend uses HTTPS.`,
+      dev
+        ? `Cannot reach the Python API at ${url.split("/auth/")[0]}. Start FastAPI, check VITE_API_URL and FRONTEND_ORIGINS, and use HTTPS for the API if the frontend uses HTTPS.`
+        : FRIENDLY.offline,
     );
   }
   const raw = await response.text();
@@ -45,24 +58,29 @@ export async function requestJson(
   try {
     data = JSON.parse(raw);
   } catch {
+    if (!dev) throw new Error(response.status >= 500 ? FRIENDLY.server : FRIENDLY.generic);
     throw new Error(
-      response.status >= 500
-        ? "The API proxy could not reach FastAPI. Check that the backend is running on the configured port and that its database startup succeeded."
-        : "The API returned a non-JSON response. Check VITE_API_URL points to FastAPI, not the frontend or Supabase.",
+      response.status === 500 && raw.includes("Traceback")
+        ? "The API crashed (500). See the backend terminal for the traceback."
+        : response.status >= 500
+          ? "The API proxy could not reach FastAPI. Check that the backend is running on the configured port and that its database startup succeeded."
+          : "The API returned a non-JSON response. Check VITE_API_URL points to FastAPI, not the frontend or Supabase.",
     );
   }
   if (!response.ok) {
     if (typeof data.detail === "string") throw new Error(data.detail);
     if (Array.isArray(data.detail))
       throw new Error(
-        data.detail
-          .map(
-            (issue: any) =>
-              `${issue.loc?.slice(1).join(".") || "Input"}: ${issue.msg}`,
-          )
-          .join("; "),
+        dev
+          ? data.detail
+              .map(
+                (issue: any) =>
+                  `${issue.loc?.slice(1).join(".") || "Input"}: ${issue.msg}`,
+              )
+              .join("; ")
+          : FRIENDLY.invalid,
       );
-    throw new Error(`Request failed (${response.status}). Please try again.`);
+    throw new Error(dev ? `Request failed (${response.status}). Please try again.` : FRIENDLY.generic);
   }
   return data;
 }

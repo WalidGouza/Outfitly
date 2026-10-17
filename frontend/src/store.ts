@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { requestJson, resolveApiUrl } from "./api";
+import { FRIENDLY, requestJson, resolveApiUrl } from "./api";
 import { scoreLook } from "./colors";
 import { useWardrobeCatalog, type Wardrobe } from "./useWardrobeCatalog";
 
@@ -90,7 +90,15 @@ const env = (import.meta as unknown as { env: Record<string, string> }).env;
 export const rawApi = env.VITE_API_URL;
 const appEnv = env.VITE_APP_ENV as "dev" | "prod";
 /** Configuration is validated per request so an invalid URL cannot crash the UI. */
-export const apiBase = () => resolveApiUrl(rawApi, appEnv);
+export const apiBase = () => {
+  try {
+    return resolveApiUrl(rawApi, appEnv);
+  } catch (e) {
+    // A misconfigured API address is a deployment problem: explain it to developers only.
+    if (appEnv === "prod") throw new Error(FRIENDLY.server);
+    throw e;
+  }
+};
 export const TOKEN_KEY = "atelier-token";
 
 // Sample wardrobe for visitors who have not signed in (see useWardrobeCatalog's sampleWardrobes).
@@ -189,15 +197,20 @@ export function useWardrobeStore(token: string, onExpired: () => void) {
   const call = useCallback(
     async <T = any>(path: string, method = "GET", body?: unknown, signal?: AbortSignal): Promise<T> => {
       try {
-        return await requestJson(apiBase() + path, {
-          method,
-          signal,
-          headers: {
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
-            ...(body instanceof FormData || body === undefined ? {} : { "Content-Type": "application/json" }),
+        return await requestJson(
+          apiBase() + path,
+          {
+            method,
+            signal,
+            headers: {
+              ...(token ? { Authorization: `Bearer ${token}` } : {}),
+              ...(body instanceof FormData || body === undefined ? {} : { "Content-Type": "application/json" }),
+            },
+            body: body instanceof FormData ? body : body === undefined ? undefined : JSON.stringify(body),
           },
-          body: body instanceof FormData ? body : body === undefined ? undefined : JSON.stringify(body),
-        });
+          fetch,
+          appEnv,
+        );
       } catch (e) {
         // A 12-hour session ended: go back to the sample wardrobe instead of failing everywhere.
         if (e instanceof Error && e.message.startsWith("Session expired")) onExpired();
@@ -208,7 +221,7 @@ export function useWardrobeStore(token: string, onExpired: () => void) {
   );
   const loadCatalog = useCallback(
     (t: string, signal: AbortSignal) =>
-      requestJson(apiBase() + "/wardrobes", { headers: { Authorization: `Bearer ${t}` }, signal }),
+      requestJson(apiBase() + "/wardrobes", { headers: { Authorization: `Bearer ${t}` }, signal }, fetch, appEnv),
     [],
   );
   const catalog = useWardrobeCatalog(token, loadCatalog);

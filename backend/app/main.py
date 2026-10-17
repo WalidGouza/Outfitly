@@ -13,6 +13,8 @@ from pwdlib import PasswordHash
 from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Form
 from fastapi.security import HTTPBearer
 from fastapi.responses import Response, JSONResponse
+from fastapi.exceptions import RequestValidationError
+from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from sqlalchemy import select, text
@@ -80,26 +82,76 @@ app.add_middleware(
 )
 
 
+# ── Errors: detailed for developers (APP_ENV=dev), plain language for users (APP_ENV=prod) ──
+# The detailed cause is always written to the backend log either way.
+FRIENDLY = {
+    "storage": "We couldn’t save or load your photo right now. Please try again in a moment.",
+    "ml": "Photo analysis isn’t available right now. Please try again in a moment.",
+    "database": "Something went wrong on our side. Please try again in a moment.",
+    "unexpected": "Something went wrong on our side. Please try again in a moment.",
+}
+# Validation errors by field: what to tell a user who typed something we can't accept.
+FIELD_MESSAGES = {
+    "email": "Enter a valid email address.",
+    "password": "Passwords are 10 to 128 characters.",
+    "current_password": "Enter your current password.",
+    "new_password": "Your new password must be 10 to 128 characters.",
+    "username": "Usernames are 2 to 30 letters, numbers, spaces, dots, dashes or underscores.",
+    "name": "Names can be 1 to 80 characters.",
+    "color": "Choose a colour from the list.",
+    "image": "Choose a photo to upload.",
+    "latitude": "We couldn’t read your location. Please try again.",
+    "longitude": "We couldn’t read your location. Please try again.",
+    "cloth_ids": "Choose the pieces for this outfit again.",
+}
+
+
+def user_message(kind, exc):
+    return str(exc) if s.is_dev else FRIENDLY[kind]
+
+
 @app.exception_handler(StorageUnavailable)
 async def storage_error(request, exc):
     logger.error("Image storage failed: %s", exc)
-    return JSONResponse(status_code=503, content={"detail": str(exc)})
+    return JSONResponse(status_code=503, content={"detail": user_message("storage", exc)})
 
 
 @app.exception_handler(EmbeddingUnavailable)
 async def embedding_error(request, exc):
     logger.error("Embedding failed: %s", exc)
-    return JSONResponse(status_code=503, content={"detail": str(exc)})
+    return JSONResponse(status_code=503, content={"detail": user_message("ml", exc)})
 
 
 @app.exception_handler(SQLAlchemyError)
 async def database_error(request, exc):
+    logger.error("Database request failed: %s", exc.__class__.__name__)
     return JSONResponse(
         status_code=503,
         content={
             "detail": "The API is running but the database request failed. Check backend DATABASE_URL, Supabase connectivity, and schema permissions. See the backend terminal for startup errors."
+            if s.is_dev
+            else FRIENDLY["database"]
         },
     )
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_error(request, exc):
+    if s.is_dev:
+        # FastAPI's own field-by-field list, which the dev frontend formats as "field: problem".
+        return await request_validation_exception_handler(request, exc)
+    fields = [str(e.get("loc", ["", ""])[-1]) for e in exc.errors()]
+    message = next((FIELD_MESSAGES[f] for f in fields if f in FIELD_MESSAGES), None)
+    if message is None and any(f in {"category", "texture", "style", "garment", "harmony", "wear"} for f in fields):
+        message = "Choose an option from the list."
+    return JSONResponse(status_code=422, content={"detail": message or "Some details aren’t valid. Please check them and try again."})
+
+
+@app.exception_handler(Exception)
+async def unexpected_error(request, exc):
+    logger.exception("Unexpected error on %s %s", request.method, request.url.path)
+    detail = f"Unexpected {exc.__class__.__name__}: {exc}" if s.is_dev else FRIENDLY["unexpected"]
+    return JSONResponse(status_code=500, content={"detail": detail})
 
 
 @app.get("/live")

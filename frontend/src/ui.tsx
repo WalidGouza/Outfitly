@@ -272,10 +272,13 @@ export function OutfitCard({
   sub,
   tag,
   facets = true,
+  onOpen,
   children,
 }: {
   look: Look;
   open: (p: Piece) => void;
+  /** Opens the outfit's details (description and suggestions). */
+  onOpen?: () => void;
   label?: string;
   sub?: string;
   tag?: ReactNode;
@@ -294,7 +297,15 @@ export function OutfitCard({
             <div className="score__sub num">{sub ?? (pct === undefined ? "" : `${pct}% match`)}</div>
           </div>
         </div>
-        {tag}
+        <span className="outfit__tags">
+          {tag}
+          {onOpen && (
+            <button type="button" className="btn btn--plain btn--sm outfit__details" onClick={onOpen} aria-label="Outfit details and suggestions">
+              Details
+              <Icon name="chevron" />
+            </button>
+          )}
+        </span>
       </header>
       <Palette items={items} />
       <Pieces items={items} open={open} />

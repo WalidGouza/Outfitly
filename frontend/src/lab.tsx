@@ -4,6 +4,7 @@ import { describeOutfit } from "./describe";
 import type { App } from "./screens";
 import { categories, styles, type Category, type Look, type Piece, type Rating } from "./store";
 import { Facets, Icon, Palette, PieceArt, Pieces, Ring, ordered } from "./ui";
+import { Suggestions } from "./outfit";
 
 /** Outfit lab selection; kept in the app shell so it survives a visit to a piece's page. */
 export type LabState = { picks: Partial<Record<Category, string>>; style: string };
@@ -184,6 +185,9 @@ export function Lab({ app, lab, setLab }: { app: App; lab: LabState; setLab: Dis
                   {rating?.estimated && <p className="t-cap muted">Meaning is estimated while image analysis is unavailable.</p>}
                 </div>
               )}
+              <div style={{ padding: "0 16px 16px" }}>
+                <Suggestions app={app} items={ordered(picked)} style={look.style} />
+              </div>
               <div className="outfit__foot">
                 <button className="btn btn--primary btn--block" aria-pressed={saved} onClick={() => app.saveLook(look)}>
                   <Icon name="saved" filled={saved} />

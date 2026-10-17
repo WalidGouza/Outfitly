@@ -31,3 +31,21 @@ test('cancelled requests preserve abort errors instead of connectivity messages'
  const cancellation=new DOMException('Request cancelled','AbortError');
  await assert.rejects(()=>requestJson('/api/wardrobes/demo/clothes',{signal:controller.signal},async()=>{throw cancellation}),error=>error===cancellation);
 });
+test('production errors are friendly and never name the API, its host or settings',async()=>{
+ const technical=/API|FastAPI|VITE_|FRONTEND_ORIGINS|proxy|Supabase|localhost|http|500|502/i;
+ const prod=(t)=>requestJson('https://api.example.com/wardrobes',{},t,'prod');
+ const cases=[
+  async()=>{throw new TypeError('Failed to fetch')},
+  async()=>new Response('<html>Bad gateway</html>',{status:502}),
+  async()=>new Response('Traceback (most recent call last)',{status:500}),
+  async()=>Response.json({detail:[{loc:['body','password'],msg:'String should have at least 10 characters'}]},{status:422}),
+  async()=>Response.json({},{status:500}),
+ ];
+ for(const transport of cases) await assert.rejects(()=>prod(transport),e=>{assert.doesNotMatch(e.message,technical,e.message);return true;});
+ // Messages the backend already wrote for users pass through unchanged.
+ await assert.rejects(()=>prod(async()=>Response.json({detail:'Email or password incorrect'},{status:401})),/Email or password incorrect/);
+});
+test('development errors keep the setup details',async()=>{
+ await assert.rejects(()=>requestJson('/api/wardrobes',{},async()=>{throw new TypeError('x')},'dev'),/FastAPI/);
+ await assert.rejects(()=>requestJson('/api/wardrobes',{},async()=>new Response('Traceback (most recent call last)',{status:500}),'dev'),/backend terminal/);
+});

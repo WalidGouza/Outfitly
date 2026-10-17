@@ -4,6 +4,7 @@ import "./ow.css";
 import "./app.css";
 import { emptyLab, Lab, type LabState } from "./lab";
 import { AccountPage, Avatar, displayName, useAvatarUrl, type Me } from "./account";
+import { OutfitDetails } from "./outfit";
 import { KEEP_OOTD_UNSEEN_FOR_TESTING } from "./testing";
 import { Logo, LogoSymbol } from "./brand";
 import { resolvedTheme, validTheme, type Theme } from "./theme";
@@ -288,6 +289,8 @@ function App() {
     go({ name: "home" });
   };
 
+  const [details, setDetails] = useState<Look | null>(null);
+
   const app: AppApi = {
     store,
     go,
@@ -305,6 +308,11 @@ function App() {
     saveLook,
     newWardrobe: () => setDialog(store.demo ? "auth" : "wardrobe"),
     wear: store.demo ? "both" : (me?.wear ?? "both"),
+    openOutfit: setDetails,
+    openLookInLab: (look: Look) => {
+      setLab((l) => ({ ...l, style: look.style, picks: Object.fromEntries(look.items.map((i) => [i.category, i.id])) }));
+      go({ name: "lab" });
+    },
     openInLab: (piece: Piece) => {
       setLab((l) => ({ ...l, picks: { ...l.picks, [piece.category]: piece.id } }));
       go({ name: "lab" });
@@ -444,6 +452,7 @@ function App() {
         }}
       />
       <RemoveDialog app={app} piece={removing} onClose={() => setRemoving(null)} />
+      <OutfitDetails app={app} look={details} onClose={() => setDetails(null)} />
     </div>
   );
 }
