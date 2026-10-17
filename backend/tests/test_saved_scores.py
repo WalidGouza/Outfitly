@@ -17,7 +17,8 @@ class Session:
     def __init__(self, score=None):
         self.commits = 0
         self.outfits = [SimpleNamespace(id="o1", name="Look", style="Everyday", cloth_ids=["t", "p", "s"], score=score,
-                                        breakdown={"semantic": 50, "color": 50, "texture": 50} if score is not None else None)]
+                                        breakdown={"semantic": 50, "color": 50, "texture": 50} if score is not None else None,
+                                        score_version=main.meaning.SCORE_VERSION if score is not None else None)]
         self.pieces = {p.id: p for p in (
             piece("t", "tops", "#eeeeee"), piece("p", "pants", "#2e3a52", "denim"), piece("s", "shoes", "#7a5235", "leather"),
         )}
@@ -35,6 +36,24 @@ class Session:
         self.commits += 1
 
 
+def style_axes(prompts):
+    """Each style description points along its own axis, in meaning.STYLE_NAMES order."""
+    return [[1.0 if j == i else 0.0 for j in range(512)] for i in range(len(prompts))]
+
+
+def test_outfits_scored_by_an_older_formula_are_rescored(monkeypatch):
+    monkeypatch.setattr(main.embeddings, "texts", style_axes)
+    session = Session(score=12)
+    session.outfits[0].score_version = 1
+    main.app.dependency_overrides[main.db] = lambda: session
+    main.app.dependency_overrides[main.user] = lambda: SimpleNamespace(id="owner")
+    try:
+        look = TestClient(main.app).get("/wardrobes/w/outfits").json()[0]
+    finally:
+        main.app.dependency_overrides.clear()
+    assert look["score"] != 12 and session.outfits[0].score_version == main.meaning.SCORE_VERSION
+
+
 @pytest.fixture
 def client():
     main.app.dependency_overrides[main.db] = lambda: Session()
@@ -44,7 +63,8 @@ def client():
 
 
 def test_saved_outfits_carry_their_match_score(client, monkeypatch):
-    monkeypatch.setattr(main.embeddings, "text", lambda value: [1.0] + [0.0] * 511)
+    # The photos look Everyday (axis 0), the tags say Everyday, the outfit is Everyday.
+    monkeypatch.setattr(main.embeddings, "texts", style_axes)
     look = client.get("/wardrobes/w/outfits").json()[0]
     assert set(look["breakdown"]) == {"semantic", "color", "texture"}
     assert look["breakdown"]["semantic"] == 100
@@ -55,7 +75,7 @@ def test_saved_outfits_still_list_when_ml_is_down(client, monkeypatch):
     def down(value):
         raise EmbeddingUnavailable("down")
 
-    monkeypatch.setattr(main.embeddings, "text", down)
+    monkeypatch.setattr(main.embeddings, "texts", down)
     look = client.get("/wardrobes/w/outfits").json()[0]
     assert look["id"] == "o1" and "score" not in look
 
@@ -64,7 +84,7 @@ def test_stored_scores_are_used_without_the_ml_service(monkeypatch):
     def down(value):
         raise AssertionError("listing must not call the ML service")
 
-    monkeypatch.setattr(main.embeddings, "text", down)
+    monkeypatch.setattr(main.embeddings, "texts", down)
     main.app.dependency_overrides[main.db] = lambda: Session(score=77)
     main.app.dependency_overrides[main.user] = lambda: SimpleNamespace(id="owner")
     try:
@@ -76,7 +96,7 @@ def test_stored_scores_are_used_without_the_ml_service(monkeypatch):
 
 def test_old_outfits_are_scored_once_and_kept(monkeypatch):
     calls = []
-    monkeypatch.setattr(main.embeddings, "text", lambda value: calls.append(value) or [1.0] + [0.0] * 511)
+    monkeypatch.setattr(main.embeddings, "texts", lambda prompts: calls.append(prompts) or style_axes(prompts))
     session = Session()
     main.app.dependency_overrides[main.db] = lambda: session
     main.app.dependency_overrides[main.user] = lambda: SimpleNamespace(id="owner")

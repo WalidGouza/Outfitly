@@ -113,10 +113,26 @@ export function textureScore(a: string, b: string) {
 
 type Scorable = { color: string; texture: string; style: string };
 
+// Mirrors AFFINITY and COHESION_WEIGHT in backend/app/meaning.py.
+const AFFINITY: Record<string, Record<string, number>> = {
+  Everyday: { Everyday: 1, Minimal: 0.7, "Smart casual": 0.5, Streetwear: 0.7, Evening: 0.2 },
+  Minimal: { Everyday: 0.7, Minimal: 1, "Smart casual": 0.7, Streetwear: 0.4, Evening: 0.5 },
+  "Smart casual": { Everyday: 0.5, Minimal: 0.7, "Smart casual": 1, Streetwear: 0.3, Evening: 0.6 },
+  Streetwear: { Everyday: 0.7, Minimal: 0.4, "Smart casual": 0.3, Streetwear: 1, Evening: 0.2 },
+  Evening: { Everyday: 0.2, Minimal: 0.5, "Smart casual": 0.6, Streetwear: 0.2, Evening: 1 },
+};
+const COHESION_WEIGHT = 0.2;
+/** How well a piece of one style suits an outfit of another (1 = same style). */
+export const affinity = (target: string, style: string) => AFFINITY[target]?.[style] ?? 0.5;
+const pairsOf = <T,>(items: T[]) => items.flatMap((a, i) => items.slice(i + 1).map((b) => [a, b] as const));
+
 export function scoreLook(items: Scorable[], style: string, harmony = "balanced") {
   const pairs = items.flatMap((a, i) => items.slice(i + 1).map((b) => [a, b] as const));
-  // Without CLIP in the browser, "meaning" is how many pieces share the requested style.
-  const semantic = 0.72 + 0.2 * (items.filter((i) => i.style === style).length / items.length);
+  // Meaning, as in backend/app/meaning.py: each piece's style tag read through AFFINITY, plus a
+  // cohesion bonus when the pieces agree. (No photos in the browser, so the tag stands alone.)
+  const fit = items.reduce((sum, i) => sum + affinity(style, i.style), 0) / items.length;
+  const agree = pairsOf(items).reduce((sum, [a, b]) => sum + affinity(a.style, b.style), 0) / pairsOf(items).length;
+  const semantic = (1 - COHESION_WEIGHT) * fit + COHESION_WEIGHT * agree;
   const color = pairs.reduce((sum, [a, b]) => sum + colorScore(a.color, b.color, harmony), 0) / pairs.length;
   const texture = pairs.reduce((sum, [a, b]) => sum + textureScore(a.texture, b.texture), 0) / pairs.length;
   const score = semantic * rules.weights.semantic + color * rules.weights.color + texture * rules.weights.texture;

@@ -37,9 +37,15 @@ class Session:
         return SimpleNamespace(all=lambda: [p for p in PIECES.values() if p.category == category])
 
 
+def style_axes(prompts):
+    """Each style description points along its own axis, in meaning.STYLE_NAMES order."""
+    return [[1.0 if j == i else 0.0 for j in range(512)] for i in range(len(prompts))]
+
+
 @pytest.fixture
 def client(monkeypatch):
     monkeypatch.setattr(main.embeddings, "text", lambda value: vector(1.0))
+    monkeypatch.setattr(main.embeddings, "texts", style_axes)
     main.app.dependency_overrides[main.db] = lambda: Session()
     main.app.dependency_overrides[main.user] = lambda: SimpleNamespace(id="owner")
     yield TestClient(main.app)

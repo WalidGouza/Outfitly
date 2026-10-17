@@ -1,5 +1,6 @@
 import colorsys
 import itertools
+from . import meaning
 
 
 def hsv(color):
@@ -36,8 +37,12 @@ def texture_score(a, b, rules):
 def score_combo(combo, semantic, rules):
     """Match score (0-100) and its meaning/colour/fabric breakdown for one outfit."""
     pairs = list(itertools.combinations(combo, 2))
+    fit = sum(semantic[x.id] for x in combo) / len(combo)
+    together = meaning.cohesion(combo)
+    if together is not None:
+        fit = (1 - meaning.COHESION_WEIGHT) * fit + meaning.COHESION_WEIGHT * together
     parts = {
-        "semantic": sum(semantic[x.id] for x in combo) / len(combo),
+        "semantic": fit,
         "color": sum(color_score(a.color, b.color, rules) for a, b in pairs)
         / len(pairs),
         "texture": sum(texture_score(a.texture, b.texture, rules) for a, b in pairs)

@@ -1,26 +1,30 @@
 from types import SimpleNamespace
 import pytest
 from fastapi.testclient import TestClient
-from app import main
+from app import main, meaning
 from app.embeddings import EmbeddingUnavailable
 from app.models import Wardrobe
 
-STYLE_AXIS = {"Everyday": 0, "Minimal": 1, "Smart casual": 2, "Streetwear": 3, "Evening": 4}
+SC = meaning.STYLE_NAMES.index("Smart casual")
 
 
-def vector(i):
+def axis(i):
     return [1.0 if j == i else 0.0 for j in range(512)]
 
 
-def piece(id, category, embedding, color="#808080", texture="cotton"):
+def style_axes(prompts):
+    return [axis(i) for i in range(len(prompts))]
+
+
+def piece(id, category, color="#808080", texture="cotton", style="Smart casual"):
+    # Photos "look" Smart casual and the user tagged them Smart casual.
     return SimpleNamespace(id=id, name=id, category=category, color=color, texture=texture,
-                           style="Everyday", garment=None, image=None, wardrobe_id="w", embedding=embedding)
+                           style=style, garment=None, image=None, wardrobe_id="w", embedding=axis(SC))
 
 
-# Every piece "looks" Smart casual, so Auto should pick that style.
 PIECES = [
-    piece("t", "tops", vector(2), "#eee7d7"), piece("p", "pants", vector(2), "#1f2a4a"),
-    piece("s", "shoes", vector(2), "#7a5235", "leather"), piece("t2", "tops", vector(2)),
+    piece("t", "tops", "#eee7d7"), piece("p", "pants", "#1f2a4a"),
+    piece("s", "shoes", "#7a5235", "leather"), piece("t2", "tops"),
 ]
 
 
@@ -36,7 +40,7 @@ class Session:
 
 @pytest.fixture
 def client(monkeypatch):
-    monkeypatch.setattr(main.embeddings, "text", lambda value: vector(next(i for s, i in STYLE_AXIS.items() if f"A {s} " in value)))
+    monkeypatch.setattr(main.embeddings, "texts", style_axes)
     main.app.dependency_overrides[main.db] = lambda: Session()
     main.app.dependency_overrides[main.user] = lambda: SimpleNamespace(id="owner")
     yield TestClient(main.app)
@@ -53,7 +57,8 @@ def test_auto_reports_the_style_the_outfit_fits_best(client):
 
 def test_a_chosen_style_is_scored_as_that_style(client):
     body = client.post("/wardrobes/w/rate", json={"cloth_ids": ["t", "p", "s"], "style": "Evening"}).json()
-    assert body["style"] == "Evening" and body["breakdown"]["semantic"] == 0
+    # Smart casual pieces judged as Evening: a related style, so partly, not fully.
+    assert body["style"] == "Evening" and 50 <= body["breakdown"]["semantic"] < 80
 
 
 def test_rating_matches_the_saved_outfit_score(client):
@@ -65,10 +70,10 @@ def test_an_outfit_needs_one_piece_per_category(client):
     assert client.post("/wardrobes/w/rate", json={"cloth_ids": ["t", "t2", "s"]}).status_code == 400
 
 
-def test_without_the_ml_service_colour_and_fabric_still_rate(client, monkeypatch):
-    def down(value):
+def test_without_the_ml_service_the_style_tags_still_rate(client, monkeypatch):
+    def down(prompts):
         raise EmbeddingUnavailable("down")
 
-    monkeypatch.setattr(main.embeddings, "text", down)
+    monkeypatch.setattr(main.embeddings, "texts", down)
     body = client.post("/wardrobes/w/rate", json={"cloth_ids": ["t", "p", "s"]}).json()
-    assert body["estimated"] and body["breakdown"]["semantic"] == 75 and body["style"] == "Everyday"
+    assert body["estimated"] and body["style"] == "Smart casual" and body["breakdown"]["semantic"] == 100

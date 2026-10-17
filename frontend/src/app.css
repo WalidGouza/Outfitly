@@ -157,6 +157,15 @@ html[data-theme="dark"]:has(.app) { background: #0B0D0A; }
   .ow button.tile--new { animation: glow 3200ms ease-in-out infinite; }
   .ow button.tile--new.tile--enter { animation: liquidGlassEntry 800ms cubic-bezier(0.16, 1, 0.3, 1) both, glow 3200ms ease-in-out 800ms infinite; }
   .tile--new .ootd-sweep::before { animation: liquidSweepLoop 6000ms infinite; }
+  /* The pieces re-enter with every sweep (the card itself stays put): rise in 100ms apart as the
+     sheen starts, hold, then sink back out just before the next cycle. Same 6s clock as the sweep. */
+  .tile--new .inset-media { animation: staggerLoop 6000ms infinite both; animation-delay: calc(200ms + var(--i, 0) * 100ms); }
+}
+@keyframes staggerLoop {
+  0% { opacity: 0; transform: translateY(12px); animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1); }
+  10% { opacity: 1; transform: translateY(0); }
+  90% { opacity: 1; transform: translateY(0); animation-timing-function: cubic-bezier(0.23, 1, 0.32, 1); }
+  96%, 100% { opacity: 0; transform: translateY(12px); }
 }
 @keyframes liquidSweepLoop {
   0%, 4.17% { transform: translateX(-100%) skewX(-15deg); animation-timing-function: cubic-bezier(0.4, 0, 0.2, 1); }

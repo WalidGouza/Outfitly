@@ -23,6 +23,7 @@ from .database import make_engine
 from .models import Base, User, Wardrobe, Cloth, Outfit
 from .embeddings import EmbeddingClient, EmbeddingUnavailable
 from .text_cache import TextEmbeddingStore
+from . import meaning
 from .matching import is_outfit, rank, score_combo
 from . import attributes
 from .storage import ImageStorage, StorageUnavailable
@@ -57,6 +58,7 @@ async def lifespan(app):
         conn.execute(text("ALTER TABLE public.clothes ADD COLUMN IF NOT EXISTS garment VARCHAR"))
         conn.execute(text("ALTER TABLE public.outfits ADD COLUMN IF NOT EXISTS score INTEGER"))
         conn.execute(text("ALTER TABLE public.outfits ADD COLUMN IF NOT EXISTS breakdown JSON"))
+        conn.execute(text("ALTER TABLE public.outfits ADD COLUMN IF NOT EXISTS score_version INTEGER"))
         conn.execute(text("ALTER TABLE public.users ADD COLUMN IF NOT EXISTS username VARCHAR"))
         conn.execute(text("ALTER TABLE public.users ADD COLUMN IF NOT EXISTS avatar VARCHAR"))
         conn.execute(text("ALTER TABLE public.users ADD COLUMN IF NOT EXISTS wear VARCHAR"))
@@ -505,7 +507,7 @@ def generate(wid: str, body: Generate, u=Depends(user), session=Depends(db)):
         pools[anchor.category] = [anchor]
     # ...while Meaning is always measured against the style alone, so an outfit scores the
     # same with or without a starting piece (and the same as when it is saved).
-    semantic = similarity([c for pool in pools.values() for c in pool], style_text)
+    semantic = meaning.piece_scores([c for pool in pools.values() for c in pool], body.style, style_vectors())
     rules = dict(s.rules)
     if body.harmony == "tonal":
         rules["complementary_tolerance"] = -1
@@ -548,6 +550,7 @@ def save(wid: str, body: Save, u=Depends(user), session=Depends(db)):
     o = Outfit(
         wardrobe_id=wid, name=body.name, style=body.style, cloth_ids=body.cloth_ids,
         score=scored.get("score"), breakdown=scored.get("breakdown"),
+        score_version=meaning.SCORE_VERSION if scored else None,
     )
     session.add(o)
     session.commit()
@@ -564,11 +567,12 @@ def saved(wid: str, u=Depends(user), session=Depends(db)):
         # Skip outfits left incomplete by data from before piece removal existed.
         if not all(items):
             continue
-        if getattr(o, "score", None) is None:
-            # Saved before scores were stored: score it once and keep the result.
+        if getattr(o, "score", None) is None or getattr(o, "score_version", None) != meaning.SCORE_VERSION:
+            # Saved before scores were stored, or under an older formula: score it once and keep it.
             scored = saved_score(items, o.style)
             if scored:
                 o.score, o.breakdown = scored["score"], scored["breakdown"]
+                o.score_version = meaning.SCORE_VERSION
                 backfilled = True
         looks.append(
             {
@@ -590,22 +594,15 @@ def saved_score(items, style):
     The meaning part needs the ML service; when it is down the outfit is listed without a score.
     """
     try:
-        semantic = similarity(items, f"A {style} fashion outfit with coordinated textures")
+        vectors = style_vectors()
     except EmbeddingUnavailable:
         return {}
-    return score_combo(items, semantic, s.rules)
+    return score_combo(items, meaning.piece_scores(items, style, vectors), s.rules)
 
 
-def similarity(items, text_query):
-    """Cosine similarity (0-1) of each piece to a text query; raises EmbeddingUnavailable."""
-    query = embeddings.text(text_query)
-    norm = math.sqrt(sum(x * x for x in query)) or 1
-    semantic = {}
-    for c in items:
-        vector = [float(x) for x in c.embedding]
-        length = math.sqrt(sum(x * x for x in vector)) or 1
-        semantic[c.id] = max(0, min(1, sum(a * b for a, b in zip(query, vector)) / (norm * length)))
-    return semantic
+def style_vectors():
+    """Embeddings of the five style descriptions (stored, so normally no ML call)."""
+    return embeddings.texts(meaning.PROMPTS)
 
 
 # ── Outfit of the day, from the weather ─────────────────────────────────────
@@ -629,16 +626,14 @@ def rate(wid: str, body: Rate, u=Depends(user), session=Depends(db)):
     items = outfit_pieces(wid, body.cloth_ids, session)
     candidates = STYLES if body.style == "Auto" else [body.style]
     try:
-        scored = [
-            {"style": style, **score_combo(items, similarity(items, f"A {style} fashion outfit with coordinated textures"), s.rules)}
-            for style in candidates
-        ]
-        estimated = False
+        vectors, estimated = style_vectors(), False
     except EmbeddingUnavailable:
-        # Without the ML service, colour and fabric are still exact; meaning is a neutral estimate.
-        style = "Everyday" if body.style == "Auto" else body.style
-        scored = [{"style": style, **score_combo(items, {c.id: 0.75 for c in items}, s.rules)}]
-        estimated = True
+        # Without the ML service, meaning comes from the pieces' style tags alone.
+        vectors, estimated = None, True
+    scored = [
+        {"style": style, **score_combo(items, meaning.piece_scores(items, style, vectors), s.rules)}
+        for style in candidates
+    ]
     best = max(scored, key=lambda r: r["score"])
     return {**best, "estimated": estimated, "items": [cloth_json(c) for c in items]}
 
@@ -722,10 +717,11 @@ def today(wid: str, place: Place, u=Depends(user), session=Depends(db)):
     plan = weather.plan(w, s.weather_rules)
     pieces = list(session.scalars(select(Cloth).where(Cloth.wardrobe_id == wid)))
     try:
-        semantic = similarity(pieces, weather.query(place.style, w, plan))
+        vectors = style_vectors()
     except EmbeddingUnavailable:
-        # Weather and colour still pick a good outfit while the ML service is down.
-        semantic = {c.id: 0.75 for c in pieces}
+        # Weather, colour and the style tags still pick a good outfit while the ML service is down.
+        vectors = None
+    semantic = meaning.piece_scores(pieces, place.style, vectors)
     return today_response(pieces, semantic, place, w, plan)
 
 

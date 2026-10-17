@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {colorName,colorChoices,verdict,ringDash,colorScore,textureScore,scoreLook} from './colors.ts';
+import {colorName,colorChoices,verdict,ringDash,colorScore,textureScore,scoreLook,affinity} from './colors.ts';
 
 test('every swatch gets the same name the backend gives it',()=>{
  assert.equal(colorName('#27324A'),'Navy');assert.equal(colorName('#6b6a43'),'Olive');
@@ -22,4 +22,13 @@ test('sample scoring follows the backend rules',()=>{
  assert.equal(textureScore('denim','cotton'),textureScore('cotton','denim'));
  const look=scoreLook([{color:'#eeeeee',texture:'cotton',style:'Everyday'},{color:'#2e3a52',texture:'denim',style:'Everyday'},{color:'#7a5235',texture:'leather',style:'Minimal'}],'Everyday');
  assert.ok(look.score>0&&look.score<=100);assert.deepEqual(Object.keys(look.breakdown),['semantic','color','texture']);
+});
+
+test('meaning follows the style tags: one style scores high, a far style low',()=>{
+ const sw=[{color:'#555555',texture:'cotton',style:'Streetwear'},{color:'#222222',texture:'cotton',style:'Streetwear'},{color:'#eeeeee',texture:'leather',style:'Streetwear'}];
+ assert.equal(scoreLook(sw,'Streetwear').breakdown.semantic,100);
+ assert.ok(scoreLook(sw,'Evening').breakdown.semantic<40);
+ const mixed=[sw[0],{...sw[1],style:'Evening'},{...sw[2],style:'Evening'}];
+ assert.ok(scoreLook(mixed,'Streetwear').breakdown.semantic<scoreLook(sw,'Streetwear').breakdown.semantic-25);
+ assert.equal(affinity('Evening','Streetwear'),affinity('Streetwear','Evening'));
 });

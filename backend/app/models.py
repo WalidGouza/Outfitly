@@ -66,6 +66,8 @@ class Outfit(Base):
     # Null for outfits saved before scores were stored (filled in on first listing).
     score: Mapped[int | None] = mapped_column(Integer, nullable=True)
     breakdown: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    # Which scoring formula produced `score` (meaning.SCORE_VERSION); older ones are rescored.
+    score_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
 
 class TextEmbedding(Base):
