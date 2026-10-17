@@ -3,6 +3,18 @@ import { apiBase, TOKEN_KEY, type Store } from "./store";
 import type { Theme } from "./theme";
 import { Dialog, DialogHead, Icon, Seg, type ToastData } from "./ui";
 
+export type Persona = {
+  styles: { name: string; share: number }[];
+  colors: { name: string; hex: string; share: number }[];
+  fabrics: { name: string; share: number }[];
+  garments: { name: string; count: number }[];
+  summary: string;
+  based_on: { pieces: number; outfits: number };
+  feedback: { saved: number; dismissed: number; owned: number };
+  /** Read from the style tags alone, while photo analysis is unavailable. */
+  estimated: boolean;
+};
+
 export type Me = { email: string; username: string | null; avatar: boolean; wear: "women" | "men" | "both" | null };
 
 /** The name shown for an account: its username, or the start of its email until one is set. */
@@ -309,6 +321,8 @@ function SignedIn({
         </div>
       </section>
 
+      <StyleProfile store={store} toast={toast} />
+
       {appearance}
 
       <section className="account__section">
@@ -334,6 +348,127 @@ function SignedIn({
 
       <DeleteAccountDialog open={deleting} onClose={() => setDeleting(false)} store={store} toast={toast} signOut={signOut} />
     </div>
+  );
+}
+
+const pct = (share: number) => `${Math.round(share * 100)}%`;
+const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? "" : "s"}`;
+
+/** The persona: what Outfitly has read about the user's taste, used to rank suggestions. */
+function StyleProfile({ store, toast }: Pick<Props, "store" | "toast">) {
+  const [persona, setPersona] = useState<Persona | null>(null);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const load = () =>
+    store
+      .call<Persona>("/me/persona")
+      .then((p) => {
+        setPersona(p);
+        setError("");
+      })
+      .catch((e: Error) => setError(e.message));
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once per visit
+  }, []);
+
+  async function reset() {
+    setBusy(true);
+    try {
+      await store.call("/me/suggestion-events", "DELETE");
+      await load();
+      toast({ kind: "Reset", text: "Suggestions start fresh from your wardrobe", tone: "plain" });
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const feedback = persona ? persona.feedback.saved + persona.feedback.dismissed + persona.feedback.owned : 0;
+  return (
+    <section className="account__section" aria-labelledby="persona-l">
+      <h2 className="account__label" id="persona-l">
+        Your style
+      </h2>
+      <div className="group account__group persona">
+        {!persona ? (
+          <div className="persona__block">
+            <p className="muted">{error || "Reading your wardrobe…"}</p>
+          </div>
+        ) : (
+          <>
+            <div className="persona__block">
+              <p className="t-head">{persona.summary}</p>
+              <p className="t-foot muted">
+                From {plural(persona.based_on.pieces, "piece")} and {plural(persona.based_on.outfits, "saved outfit")}
+                {persona.estimated ? ", read from your style tags while photo analysis is unavailable" : ""}.
+              </p>
+            </div>
+            {persona.styles.length > 0 && (
+              <div className="persona__block">
+                <ul className="persona__styles" aria-label="Style mix">
+                  {persona.styles.map((s) => (
+                    <li key={s.name} className="persona__style">
+                      <span className="persona__name">{s.name}</span>
+                      <span className="persona__bar" aria-hidden="true">
+                        <span style={{ width: pct(s.share) }} />
+                      </span>
+                      <span className="persona__pct num">{pct(s.share)}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {persona.colors.length > 0 && (
+              <div className="row account__row">
+                <span className="account__key">Colours</span>
+                <span className="persona__swatches">
+                  {persona.colors.map((c) => (
+                    <span key={c.name} className="persona__swatch" style={{ background: c.hex }} title={`${c.name} · ${pct(c.share)}`} aria-label={`${c.name}, ${pct(c.share)}`} role="img" />
+                  ))}
+                </span>
+              </div>
+            )}
+            {persona.fabrics.length > 0 && (
+              <div className="row account__row">
+                <span className="account__key">Fabrics</span>
+                <span className="persona__chips">
+                  {persona.fabrics.map((f) => (
+                    <span key={f.name} className="chip chip--sm">
+                      {f.name} {pct(f.share)}
+                    </span>
+                  ))}
+                </span>
+              </div>
+            )}
+            {persona.garments.length > 0 && (
+              <div className="row account__row">
+                <span className="account__key">You own most</span>
+                <span className="persona__chips">
+                  {persona.garments.map((g) => (
+                    <span key={g.name} className="chip chip--sm">
+                      {g.name} ×{g.count}
+                    </span>
+                  ))}
+                </span>
+              </div>
+            )}
+            <div className="row account__row">
+              <span className="account__value">
+                {persona.feedback.dismissed
+                  ? `You’ve hidden ${plural(persona.feedback.dismissed, "suggestion")}`
+                  : "No feedback on suggestions yet"}
+              </span>
+              <button className="btn btn--plain btn--sm account__edit" onClick={reset} disabled={busy || !feedback}>
+                Reset
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+      <p className="t-foot muted account__hint">Outfitly uses this to choose which pieces to suggest. It updates as your wardrobe changes.</p>
+    </section>
   );
 }
 

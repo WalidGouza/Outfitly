@@ -1,6 +1,7 @@
 // Colour names and match-score helpers shared by every screen.
 // The name table mirrors backend/app/attributes.py so a piece's detected name
 // ("Navy chinos") and its swatch label ("Navy") always agree.
+import { garmentFit, garmentPair } from "./garments";
 
 const COLOR_NAMES: Record<string, [number, number, number]> = {
   Black: [25, 25, 25], Charcoal: [60, 64, 70], Grey: [128, 128, 128],
@@ -111,9 +112,9 @@ export function textureScore(a: string, b: string) {
   return rules.pairs[`${a}:${b}`] ?? rules.pairs[`${b}:${a}`] ?? rules.unknownTexture;
 }
 
-type Scorable = { color: string; texture: string; style: string };
+type Scorable = { color: string; texture: string; style: string; garment?: string | null };
 
-// Mirrors AFFINITY and COHESION_WEIGHT in backend/app/meaning.py.
+// Mirrors AFFINITY, COHESION_WEIGHT and GARMENT_WEIGHT in backend/app/meaning.py.
 const AFFINITY: Record<string, Record<string, number>> = {
   Everyday: { Everyday: 1, Minimal: 0.7, "Smart casual": 0.5, Streetwear: 0.7, Evening: 0.2 },
   Minimal: { Everyday: 0.7, Minimal: 1, "Smart casual": 0.7, Streetwear: 0.4, Evening: 0.5 },
@@ -122,16 +123,30 @@ const AFFINITY: Record<string, Record<string, number>> = {
   Evening: { Everyday: 0.2, Minimal: 0.5, "Smart casual": 0.6, Streetwear: 0.2, Evening: 1 },
 };
 const COHESION_WEIGHT = 0.2;
+const GARMENT_WEIGHT = 0.3;
 /** How well a piece of one style suits an outfit of another (1 = same style). */
 export const affinity = (target: string, style: string) => AFFINITY[target]?.[style] ?? 0.5;
 const pairsOf = <T,>(items: T[]) => items.flatMap((a, i) => items.slice(i + 1).map((b) => [a, b] as const));
 
+/** A piece's fit for the style: its tag, blended with how typical its garment type is (garments.ts). */
+function pieceFit(item: Scorable, style: string) {
+  const tag = affinity(style, item.style);
+  const typical = garmentFit(item.garment, style, affinity);
+  return typical === null ? tag : (1 - GARMENT_WEIGHT) * tag + GARMENT_WEIGHT * typical;
+}
+/** How well two pieces go together: their style tags and, when known, their garment types. */
+function agreement(a: Scorable, b: Scorable) {
+  const tags = affinity(a.style, b.style);
+  const types = garmentPair(a.garment, b.garment, affinity);
+  return types === null ? tags : (tags + types) / 2;
+}
+
 export function scoreLook(items: Scorable[], style: string, harmony = "balanced") {
   const pairs = items.flatMap((a, i) => items.slice(i + 1).map((b) => [a, b] as const));
-  // Meaning, as in backend/app/meaning.py: each piece's style tag read through AFFINITY, plus a
-  // cohesion bonus when the pieces agree. (No photos in the browser, so the tag stands alone.)
-  const fit = items.reduce((sum, i) => sum + affinity(style, i.style), 0) / items.length;
-  const agree = pairsOf(items).reduce((sum, [a, b]) => sum + affinity(a.style, b.style), 0) / pairsOf(items).length;
+  // Meaning, as in backend/app/meaning.py: each piece's style tag and garment type read through
+  // AFFINITY, plus a cohesion bonus when the pieces agree. (No photos in the browser.)
+  const fit = items.reduce((sum, i) => sum + pieceFit(i, style), 0) / items.length;
+  const agree = pairsOf(items).reduce((sum, [a, b]) => sum + agreement(a, b), 0) / pairsOf(items).length;
   const semantic = (1 - COHESION_WEIGHT) * fit + COHESION_WEIGHT * agree;
   const color = pairs.reduce((sum, [a, b]) => sum + colorScore(a.color, b.color, harmony), 0) / pairs.length;
   const texture = pairs.reduce((sum, [a, b]) => sum + textureScore(a.texture, b.texture), 0) / pairs.length;

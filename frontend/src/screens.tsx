@@ -24,7 +24,7 @@ import {
 import { categories, categoriesFor, garmentTypes, styles, textures, typesFor, type Wear, type Category, type Look, type MissingPiece, type Piece, type Store, type Weather } from "./store";
 
 export type Route =
-  | { name: "home" | "today" | "wardrobes" | "wardrobe" | "studio" | "saved" | "lab" | "account" }
+  | { name: "home" | "today" | "wardrobes" | "wardrobe" | "studio" | "saved" | "next" | "lab" | "account" }
   | { name: "piece"; id: string };
 
 export type StudioState = {
@@ -66,6 +66,8 @@ export type App = {
   saveLook: (look: Look) => void;
   /** Which clothes to offer (profile setting); "both" for the sample wardrobe. */
   wear: Wear;
+  /** Opens Add piece filled in from a suggestion the user says they own ("I own this"). */
+  addSuggested: (prefill: AddPrefill) => void;
   /** Opens the new-wardrobe dialog (sign-in first for the sample wardrobe). */
   newWardrobe: () => void;
   /** Opens an outfit's details: its description and pieces that would raise its score. */
@@ -220,6 +222,7 @@ export function Home({ app }: { app: App }) {
         <Tile icon="studio" title="Outfit studio" text="Pick a style and colour direction." onClick={() => go({ name: "studio" })} />
         <Tile icon="saved" title="Saved" text={`${plural(store.saved.length, "look")} kept for later.`} onClick={() => go({ name: "saved" })} />
         <Tile icon="lab" title="Outfit lab" text="Mix your own outfit and get a rating." onClick={() => go({ name: "lab" })} />
+        <Tile icon="bag" title="Next buys" text="The pieces that would do most for your outfits." onClick={() => go({ name: "next" })} />
         <Tile icon="camera" title="Add a piece" text="Snap it and we fill in the details." onClick={app.openAdd} />
       </div>
       <section className="section">
@@ -246,7 +249,7 @@ export function Home({ app }: { app: App }) {
   );
 }
 
-function Tile({ icon, title, text, onClick }: { icon: "wardrobe" | "studio" | "saved" | "camera" | "lab"; title: string; text: string; onClick: () => void }) {
+function Tile({ icon, title, text, onClick }: { icon: "wardrobe" | "studio" | "saved" | "camera" | "lab" | "bag"; title: string; text: string; onClick: () => void }) {
   return (
     <button className="tile" onClick={onClick}>
       <span className="tile__icon">
@@ -1119,6 +1122,8 @@ export function Saved({ app }: { app: App }) {
 // ── Add a piece: photo in, details filled in ───────────────────────────────
 type Draft = { name: string; category: Category; garment: string; texture: string; style: string; color: string };
 const blank: Draft = { name: "", category: "tops", garment: "", texture: "cotton", style: "Everyday", color: "#8b927a" };
+/** What a suggestion already knows about a piece the user owns; the photo fills in the rest. */
+export type AddPrefill = Partial<Draft>;
 // A type only makes sense within its category ("shorts" is never a top).
 const fitType = (d: Draft): Draft => (garmentTypes[d.category].includes(d.garment) ? d : { ...d, garment: "" });
 const WEAR_OPTIONS: { value: Wear; label: string }[] = [
@@ -1127,7 +1132,7 @@ const WEAR_OPTIONS: { value: Wear; label: string }[] = [
   { value: "both", label: "Both" },
 ];
 
-export function AddPiece({ app, open, onClose }: { app: App; open: boolean; onClose: () => void }) {
+export function AddPiece({ app, open, onClose, prefill }: { app: App; open: boolean; onClose: () => void; prefill?: AddPrefill | null }) {
   const { store } = app;
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState("");
@@ -1148,13 +1153,16 @@ export function AddPiece({ app, open, onClose }: { app: App; open: boolean; onCl
     if (!open) return;
     run.current++;
     edited.current.clear();
+    // From a suggestion: its name, category, type and style are kept; colour and fabric are
+    // left for the photo to confirm, since the user's own piece may differ a little.
+    for (const key of ["name", "category", "garment", "style"] as const) if (prefill?.[key]) edited.current.add(key);
     setFile(null);
-    setDraft(blank);
-    setDetected(blank.color);
+    setDraft(fitType({ ...blank, ...prefill }));
+    setDetected(prefill?.color ?? blank.color);
     setPhase("empty");
     setError("");
     setTarget(store.wid);
-  }, [open, store.wid]);
+  }, [open, store.wid, prefill]);
   useEffect(() => {
     if (!file) return setPreview("");
     const url = URL.createObjectURL(file);

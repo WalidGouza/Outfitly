@@ -8,12 +8,16 @@ Each piece gets a fit for the target style from two signals:
   band around 0.15-0.35 whatever the photo, so they can't be used as a 0-1 score directly;
   comparing the styles against each other is what makes the signal meaningful.
 * Tag: the style the user confirmed for the piece.
+* Garment: how typical its type is of the style (a hoodie is streetwear, heels are evening;
+  see garments.py). Only when the type is known.
 
-Both are read through AFFINITY, so a near style counts for something: a Streetwear piece in
+All are read through AFFINITY, so a near style counts for something: a Streetwear piece in
 an Everyday outfit is a reasonable fit, in an Evening outfit it isn't. Finally the outfit gets
-a cohesion bonus when its pieces' styles agree with each other.
+a cohesion bonus when its pieces agree with each other, in style and in garment types
+(a hoodie with dress shoes doesn't, jeans with sneakers do).
 """
 import math
+from . import garments
 from .attributes import LOGIT_SCALE, STYLES
 
 STYLE_NAMES = tuple(STYLES)
@@ -30,8 +34,9 @@ AFFINITY = {
 }
 PHOTO_WEIGHT = 0.5  # photo vs. the user's own style tag, per piece
 COHESION_WEIGHT = 0.2  # how much the pieces agreeing with each other counts, per outfit
+GARMENT_WEIGHT = 0.3  # how typical the garment type is of the style, per piece (type known)
 # Bump when the formula changes: saved outfits scored with an older version are rescored once.
-SCORE_VERSION = 2
+SCORE_VERSION = 3
 
 
 def affinity(target, style):
@@ -54,25 +59,42 @@ def photo_profile(vector, style_vectors):
     return {name: w / total for name, w in zip(STYLE_NAMES, weights)}
 
 
+def with_garment(fit, garment, target):
+    """Blends in how typical the garment type is of the target style; unchanged for an unknown type."""
+    typical = garments.fit(garment, target, affinity)
+    return fit if typical is None else (1 - GARMENT_WEIGHT) * fit + GARMENT_WEIGHT * typical
+
+
 def piece_fit(piece, target, style_vectors=None):
-    """How well one piece fits the target style. Without photo vectors, the tag alone."""
+    """How well one piece fits the target style. Without photo vectors, tag (and garment) alone."""
     tag = affinity(target, getattr(piece, "style", None))
     embedding = getattr(piece, "embedding", None)
     if style_vectors is None or embedding is None:
-        return tag
-    profile = photo_profile(embedding, style_vectors)
-    photo = sum(share * affinity(target, name) for name, share in profile.items())
-    return PHOTO_WEIGHT * photo + (1 - PHOTO_WEIGHT) * tag
+        fit = tag
+    else:
+        profile = photo_profile(embedding, style_vectors)
+        photo = sum(share * affinity(target, name) for name, share in profile.items())
+        fit = PHOTO_WEIGHT * photo + (1 - PHOTO_WEIGHT) * tag
+    return with_garment(fit, getattr(piece, "garment", None), target)
 
 
 def piece_scores(items, target, style_vectors=None):
     return {c.id: piece_fit(c, target, style_vectors) for c in items}
 
 
+def agreement(a, b):
+    """How well two pieces go together: their style tags and, when known, their garment types."""
+    style_a, style_b = getattr(a, "style", None), getattr(b, "style", None)
+    tags = affinity(style_a, style_b) if style_a in AFFINITY and style_b in AFFINITY else None
+    types = garments.pair(getattr(a, "garment", None), getattr(b, "garment", None), affinity)
+    known = [v for v in (tags, types) if v is not None]
+    return sum(known) / len(known) if known else None
+
+
 def cohesion(items):
-    """Average style agreement between every pair of pieces; None when styles are unknown."""
-    styles = [s for s in (getattr(c, "style", None) for c in items) if s in AFFINITY]
-    pairs = [(a, b) for i, a in enumerate(styles) for b in styles[i + 1 :]]
+    """Average agreement between every pair of pieces; None when nothing is known about them."""
+    pairs = [agreement(a, b) for i, a in enumerate(items) for b in items[i + 1 :]]
+    pairs = [v for v in pairs if v is not None]
     if not pairs:
         return None
-    return sum(affinity(a, b) for a, b in pairs) / len(pairs)
+    return sum(pairs) / len(pairs)

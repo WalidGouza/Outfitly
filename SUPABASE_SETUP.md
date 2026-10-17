@@ -15,7 +15,11 @@ This page covers local setup and connection troubleshooting. On Render, enter th
 
 Backend connection setup accepts `postgres://`, `postgresql://`, and `postgresql+psycopg://`; it normalizes to the psycopg driver. Hosted Supabase connections default to `sslmode=require`, while explicitly configured certificate/SSL settings are preserved. Prepared statements are disabled. Transaction-local search paths include `public` and `extensions`, allowing the vector extension to be found in either common location.
 
-Use the database `postgres` role from Supabase Connect for the current development setup. Startup creates the app tables/index and enables RLS on its four tables. No browser Data API policies are created; access goes through FastAPI. A separately provisioned least-privilege role requires corresponding schema/migration and RLS arrangements.
+Use the database `postgres` role from Supabase Connect for the current development setup. Startup creates the app tables/index, enables RLS on its five tables and revokes every privilege the Supabase Data API roles (`anon`, `authenticated`) get on new tables. No browser Data API policies are created; access goes through FastAPI.
+
+Recommended one-time dashboard settings, since the app never uses the Data API or browser uploads:
+- **Storage > wardrobe-images > Edit bucket**: keep it private, set the upload size limit to 10 MB and the allowed MIME types to `image/jpeg` (the backend re-encodes every photo as JPEG).
+- **Project Settings > Data API**: remove `public` from the exposed schemas, or turn the Data API off. A separately provisioned least-privilege role requires corresponding schema/migration and RLS arrangements.
 
 ## Configure the frontend
 

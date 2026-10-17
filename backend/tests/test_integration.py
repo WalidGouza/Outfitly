@@ -149,3 +149,94 @@ def test_invalid_upload_and_incomplete_wardrobe(client):
         files={"image": ("piece.png", b"not an image", "image/png")},
     )
     assert r.status_code == 400
+
+
+def test_startup_takes_every_privilege_away_from_the_supabase_data_api_roles(client):
+    # Supabase has anon/authenticated roles holding all privileges on new tables; plain
+    # PostgreSQL doesn't, so create them here as Supabase would, then restart the app.
+    from app import main
+
+    with main.engine.begin() as conn:
+        for role in ("anon", "authenticated"):
+            conn.execute(text(f"DO $$ BEGIN CREATE ROLE {role} NOLOGIN; EXCEPTION WHEN duplicate_object THEN NULL; END $$"))
+            conn.execute(text(f"GRANT ALL ON ALL TABLES IN SCHEMA public TO {role}"))
+    with TestClient(main.app):
+        pass
+    with main.engine.connect() as conn:
+        grants = conn.execute(text(
+            "SELECT grantee, table_name, privilege_type FROM information_schema.role_table_grants "
+            "WHERE table_schema = 'public' AND grantee IN ('anon', 'authenticated')"
+        )).all()
+        rls = conn.scalars(text(
+            "SELECT relrowsecurity FROM pg_class WHERE relnamespace = 'public'::regnamespace AND relkind = 'r'"
+        )).all()
+    assert grants == []
+    assert rls and all(rls)
+
+
+def test_persona_suggestions_and_feedback_events(client):
+    from PIL import Image
+    from io import BytesIO
+
+    alice = auth(client, "persona@example.com")
+    bob = auth(client, "other@example.com")
+    wid = client.post("/wardrobes", headers=alice, json={"name": "Street"}).json()["id"]
+    ids = []
+    for category, garment, color, texture, style in (
+        ("tops", "hoodie", "#191919", "cotton", "Streetwear"),
+        ("pants", "joggers", "#808080", "cotton", "Streetwear"),
+        ("shoes", "heels", "#C8232D", "silk", "Evening"),
+    ):
+        raw = BytesIO()
+        Image.new("RGB", (32, 32), color).save(raw, format="PNG")
+        r = client.post(
+            f"/wardrobes/{wid}/clothes", headers=alice,
+            data={"name": garment, "category": category, "garment": garment, "texture": texture, "style": style, "color": color},
+            files={"image": ("piece.png", raw.getvalue(), "image/png")},
+        )
+        assert r.status_code == 200, r.text
+        ids.append(r.json()["id"])
+    client.post(f"/wardrobes/{wid}/outfits", headers=alice, json={"name": "Mine", "style": "Streetwear", "cloth_ids": ids})
+
+    p = client.get("/me/persona", headers=alice).json()
+    assert p["based_on"] == {"pieces": 3, "outfits": 1} and "fingerprint" not in p
+    assert p["styles"][0]["name"] == "Streetwear"
+
+    listed = client.get(f"/wardrobes/{wid}/suggestions", headers=alice)
+    assert listed.status_code == 200, listed.text
+    assert listed.json()["suggestions"], "the odd pair of heels should leave room to improve"
+    assert client.get(f"/wardrobes/{wid}/suggestions", headers=bob).status_code == 404
+
+    r = client.post(f"/wardrobes/{wid}/improve", headers=alice, json={"cloth_ids": ids, "style": "Streetwear"})
+    assert r.status_code == 200, r.text
+    best = r.json()["suggestions"][0]
+    assert best["gain"] >= 2 and best["outfits"] >= 1
+
+    event = {"action": "dismissed", "key": best["key"], "spec": best["spec"], "source": "outfit", "wardrobe_id": wid}
+    assert client.post("/me/suggestion-events", headers=bob, json={"events": [event]}).status_code == 404
+    assert client.post("/me/suggestion-events", headers=alice, json={"events": [event]}).status_code == 200
+    again = client.post(f"/wardrobes/{wid}/improve", headers=alice, json={"cloth_ids": ids, "style": "Streetwear"}).json()
+    assert best["key"] not in [s["key"] for s in again["suggestions"]]
+    assert client.get("/me/persona", headers=alice).json()["feedback"]["dismissed"] == 1
+
+    assert client.delete("/me/suggestion-events", headers=alice).json()["removed"] == 1
+    assert client.get("/me/persona", headers=alice).json()["feedback"]["dismissed"] == 0
+    assert listed.json()["considered"] >= 1 and listed.json()["complete"] is True
+
+    # Saved list: saving adds it, unsaving or "I own this" takes it off; owned pieces aren't suggested.
+    def send(action):
+        r = client.post("/me/suggestion-events", headers=alice, json={"events": [{**event, "action": action}]})
+        assert r.status_code == 200, r.text
+
+    send("saved")
+    wishlist = client.get("/me/wishlist", headers=alice).json()
+    assert [w["key"] for w in wishlist] == [best["key"]] and wishlist[0]["title"] == best["title"]
+    send("unsaved")
+    assert client.get("/me/wishlist", headers=alice).json() == []
+    send("saved")
+    send("owned")
+    assert client.get("/me/wishlist", headers=alice).json() == []
+    again = client.post(f"/wardrobes/{wid}/improve", headers=alice, json={"cloth_ids": ids, "style": "Streetwear"}).json()
+    assert best["key"] not in [s["key"] for s in again["suggestions"]]
+    r = client.request("DELETE", "/me", headers=alice, json={"password": "a-safe-test-password"})
+    assert r.status_code == 200, r.text

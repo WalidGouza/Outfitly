@@ -9,6 +9,7 @@ const paths = {
   wardrobe: ["M5 3h14v18H5z", "M12 3v18", "M9.5 11v2", "M14.5 11v2"],
   studio: ["M12 3 3 8l9 5 9-5-9-5z", "M3 13l9 5 9-5"],
   saved: ["M6 3h12v18l-6-4-6 4z"],
+  bag: ["M5 8h14l-1.2 12H6.2z", "M9 8V6.5a3 3 0 0 1 6 0V8"],
   plus: ["M12 5v14", "M5 12h14"],
   camera: ["M4 8h3l2-3h6l2 3h3v11H4z", "M12 10.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7z"],
   chevron: ["M9 6l6 6-6 6"],
@@ -451,6 +452,10 @@ export function Dialog({
   const [visible, setVisible] = useState(false);
   const ref = useRef<HTMLElement>(null);
   const prior = useRef<HTMLElement | null>(null);
+  // Parents pass a new onClose on every render; reading it through a ref keeps the effect below
+  // from re-running (and refocusing the first control) each time the app re-renders, e.g. for a toast.
+  const close = useRef(onClose);
+  close.current = onClose;
   useEffect(() => {
     if (open) {
       prior.current = document.activeElement as HTMLElement;
@@ -472,7 +477,7 @@ export function Dialog({
     const key = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         e.preventDefault();
-        onClose();
+        close.current();
       }
       if (e.key !== "Tab") return;
       const list = focusable();
@@ -488,7 +493,7 @@ export function Dialog({
     };
     document.addEventListener("keydown", key);
     return () => document.removeEventListener("keydown", key);
-  }, [visible, onClose]);
+  }, [visible]);
   if (!mounted) return null;
   return (
     <>

@@ -19,7 +19,7 @@ class Session:
 
     def scalars(self, stmt):
         model = stmt.column_descriptions[0]["entity"]
-        return iter({Wardrobe: self.wardrobes, Cloth: self.clothes, Outfit: self.outfits}[model])
+        return iter({Wardrobe: self.wardrobes, Cloth: self.clothes, Outfit: self.outfits}.get(model, []))
 
     def delete(self, item):
         self.deleted.append(item)

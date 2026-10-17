@@ -23,16 +23,18 @@ import {
   Wardrobe,
   Wardrobes,
   type App as AppApi,
+  type AddPrefill,
   type Route,
   type StudioState,
   type TodayState,
 } from "./screens";
+import { NextBuys } from "./nextbuys";
 
-// ── Routing: #/, #/today, #/wardrobes, #/wardrobe, #/studio, #/lab, #/saved, #/account, #/piece/<id> ──────
+// ── Routing: #/, #/today, #/wardrobes, #/wardrobe, #/studio, #/lab, #/saved, #/next, #/account, #/piece/<id> ──────
 function parse(hash: string): Route {
   const [, name, id] = hash.replace(/^#/, "").split("/");
   if (name === "piece" && id) return { name: "piece", id: decodeURIComponent(id) };
-  if (["today", "wardrobes", "wardrobe", "studio", "saved", "lab", "account"].includes(name)) return { name } as Route;
+  if (["today", "wardrobes", "wardrobe", "studio", "saved", "next", "lab", "account"].includes(name)) return { name } as Route;
   return { name: "home" };
 }
 const href = (r: Route) => (r.name === "piece" ? `#/piece/${encodeURIComponent(r.id)}` : r.name === "home" ? "#/" : `#/${r.name}`);
@@ -44,6 +46,7 @@ const nav: { route: Route["name"]; label: string; short: string; icon: IconName;
   { route: "studio", label: "Outfit studio", short: "Studio", icon: "studio", tab: true },
   { route: "lab", label: "Outfit lab", short: "Lab", icon: "lab", tab: false },
   { route: "saved", label: "Saved", short: "Saved", icon: "saved", tab: true },
+  { route: "next", label: "Next buys", short: "Buys", icon: "bag", tab: false },
 ];
 const tabs = nav.filter((n) => n.tab);
 const SEEN_KEY = "outfitly-ootd-seen";
@@ -251,11 +254,20 @@ function App() {
     [store, go],
   );
 
+  const [addPrefill, setAddPrefill] = useState<AddPrefill | null>(null);
   const openAdd = useCallback(() => {
+    setAddPrefill(null);
     if (store.demo) setDialog("auth");
     else if (!store.wid) setDialog("wardrobe");
     else setDialog("add");
   }, [store.demo, store.wid]);
+  const addSuggested = useCallback(
+    (prefill: AddPrefill) => {
+      openAdd();
+      if (!store.demo && store.wid) setAddPrefill(prefill);
+    },
+    [openAdd, store.demo, store.wid],
+  );
 
   // Has the user opened today's outfit yet? Keyed by local date, wardrobe and the outfit itself,
   // so a new day, another wardrobe or a different pick counts as new again.
@@ -306,6 +318,7 @@ function App() {
     locate,
     pickAnother: () => setToday((t) => ({ ...t, index: (t.index + 1) % Math.max(1, t.looks.length) })),
     saveLook,
+    addSuggested,
     newWardrobe: () => setDialog(store.demo ? "auth" : "wardrobe"),
     wear: store.demo ? "both" : (me?.wear ?? "both"),
     openOutfit: setDetails,
@@ -326,6 +339,7 @@ function App() {
     : route.name === "wardrobe" ? <Wardrobe app={app} />
     : route.name === "studio" ? <Studio app={app} />
     : route.name === "saved" ? <Saved app={app} />
+    : route.name === "next" ? <NextBuys app={app} />
     : route.name === "lab" ? <Lab app={app} lab={lab} setLab={setLab} />
     : route.name === "wardrobes" ? <Wardrobes app={app} />
     : route.name === "account" ? (
@@ -439,7 +453,7 @@ function App() {
       <WardrobeSheet open={sheet} onClose={() => setSheet(false)} store={store} pick={pickWardrobe} create={() => { setSheet(false); setDialog(store.demo ? "auth" : "wardrobe"); }} />
 
       <Toast toast={toastData} onClose={closeToast} />
-      <AddPiece app={app} open={dialog === "add"} onClose={close} />
+      <AddPiece app={app} open={dialog === "add"} onClose={close} prefill={addPrefill} />
       <NewWardrobeDialog app={app} open={dialog === "wardrobe"} onClose={close} />
       <AuthDialog
         open={dialog === "auth"}

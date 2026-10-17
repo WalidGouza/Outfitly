@@ -534,3 +534,77 @@ html[data-theme="dark"]:has(.app) { background: #0B0D0A; }
 .msheet__drag { display: flex; flex-direction: column; gap: 16px; margin: -8px -20px 0; padding: 8px 20px 0; touch-action: none; cursor: grab; }
 .msheet__drag:active { cursor: grabbing; }
 .msheet__drag .msheet__grab { align-self: center; }
+
+/* Suggestions: reach across the wardrobe and "Not for me" */
+.suggestion__text { flex: 1; }
+.suggestion__reach { margin-top: 2px; font-size: 12.5px; font-weight: 650; color: var(--moss); }
+.dark .suggestion__reach { color: var(--sage); }
+.ow .suggestion__dismiss { flex: none; align-self: center; box-shadow: none; color: color-mix(in srgb, var(--feature-fg) 70%, transparent); }
+@media (max-width: 520px) {
+  .suggestion { flex-wrap: wrap; }
+  .ow .suggestion__dismiss { margin-left: 40px; padding-left: 0; }
+}
+
+/* Account: the persona ("Your style") */
+.persona__block { display: flex; flex-direction: column; gap: 6px; padding: 14px 16px; }
+/* Rows already draw their own separator after another row (ow.css); match it after a block. */
+.persona__block + .persona__block, .persona__block + .row { border-top: 1px solid var(--sep); }
+.persona__styles { display: flex; flex-direction: column; gap: 8px; }
+.persona__style { display: grid; grid-template-columns: 110px minmax(0, 1fr) 44px; align-items: center; gap: 12px; font-size: 14px; }
+.persona__name { font-weight: 600; }
+.persona__bar { height: 8px; border-radius: 999px; background: var(--fill); overflow: hidden; }
+.persona__bar > span { display: block; height: 100%; border-radius: inherit; background: var(--moss); transition: width 420ms var(--ease-out); }
+.dark .persona__bar > span { background: var(--sage); }
+.persona__pct { text-align: right; color: var(--label-2); font-size: 13px; }
+.persona__swatches { display: flex; flex-wrap: wrap; gap: 8px; }
+.persona__swatch { width: 26px; height: 26px; border-radius: 50%; box-shadow: inset 0 0 0 1px rgba(30, 34, 29, 0.14), 0 0 0 2px var(--surface); }
+.dark .persona__swatch { box-shadow: inset 0 0 0 1px rgba(246, 242, 234, 0.3), 0 0 0 2px var(--surface); }
+.persona__chips { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
+@media (max-width: 520px) {
+  .persona__style { grid-template-columns: 92px minmax(0, 1fr) 40px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .persona__bar > span { transition: none; }
+}
+
+/* Next buys */
+.next { display: flex; flex-direction: column; gap: 22px; }
+.next section { display: flex; flex-direction: column; gap: 10px; }
+.next__label { padding: 0 4px; font-size: 12.5px; font-weight: 650; letter-spacing: 0.08em; text-transform: uppercase; color: var(--label-2); }
+.next__list { display: flex; flex-direction: column; gap: 10px; }
+.next__hint { padding: 0 4px; }
+.buy { display: flex; flex-direction: column; gap: 12px; padding: 14px; }
+.buy--saved, .buy--weather { flex-direction: row; align-items: center; }
+.buy__main { display: flex; align-items: flex-start; gap: 14px; }
+.buy__art { flex: none; display: grid; place-items: center; width: 64px; height: 64px; border-radius: var(--r-sm); background: var(--fill); overflow: hidden; }
+.buy__art svg, .buy__art img { width: 78%; height: 78%; }
+.buy--hero .buy__art { width: 112px; height: 112px; }
+.buy__icon { flex: none; display: grid; place-items: center; width: 44px; height: 44px; border-radius: 50%; background: color-mix(in srgb, var(--sage) 30%, transparent); color: var(--moss); }
+.dark .buy__icon { color: var(--sage); }
+.buy__text { display: flex; flex-direction: column; gap: 4px; min-width: 0; flex: 1; }
+.buy__title { font-weight: 650; font-size: 16px; }
+.buy--hero .buy__title { font-size: 20px; letter-spacing: -0.01em; }
+.buy__stats { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; color: var(--label-2); }
+.buy__reason { font-size: 14px; line-height: 1.4; color: var(--label-2); }
+.buy__actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.buy--saved .buy__actions { flex: none; }
+.ow .buy__actions .btn--plain { box-shadow: none; }
+.ow .buy__toggle { align-self: flex-start; box-shadow: none; color: var(--moss); font-weight: 650; }
+.dark .buy__toggle { color: var(--sage); }
+.buy__toggle .ic { width: 16px; height: 16px; }
+.buy__examples { display: flex; flex-direction: column; gap: 8px; }
+.buy__example { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px; border-radius: var(--r-sm); background: var(--fill); }
+.buy__look { display: flex; gap: 6px; flex: none; }
+.buy__mini { display: grid; place-items: center; width: 40px; height: 40px; border-radius: 10px; background: var(--surface); overflow: hidden; }
+.buy__mini svg, .buy__mini img { width: 80%; height: 80%; object-fit: cover; }
+.buy__mini.is-new { box-shadow: 0 0 0 2px var(--primary); }
+.buy__about { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; min-width: 0; text-align: right; color: var(--label-2); }
+.buy__score { display: inline-flex; align-items: center; gap: 4px; font-size: 15px; color: var(--label); }
+.buy__score .ic { width: 14px; height: 14px; color: var(--label-2); }
+@media (max-width: 520px) {
+  .buy--hero .buy__art { width: 84px; height: 84px; }
+  .buy__example { flex-direction: column; align-items: flex-start; }
+  .buy__about { align-items: flex-start; text-align: left; }
+  .buy--saved { flex-wrap: wrap; }
+  .buy--saved .buy__actions { width: 100%; padding-left: 78px; }
+}

@@ -26,7 +26,7 @@ test('suggestions fit the style, and men are not offered women-only pieces',()=>
 test('an outfit without a layer can be offered one, and nothing already owned is suggested',()=>{
  const sneakers=p('k','shoes','#F5F5F5','leather','Streetwear','sneakers','White sneakers');
  const all=suggestFor([hoodie,joggers,heels],'Streetwear',[hoodie,joggers,heels,sneakers],'both',10);
- assert.ok(!all.some(s=>s.spec.garment==='sneakers'&&s.spec.colorName==='White'));
+ assert.ok(!all.some(s=>s.spec.garment==='sneakers'&&s.spec.color_name==='White'));
  assert.ok(all.every(s=>s.replaces||s.spec.category==='jackets'));
 });
 test('a strong outfit gets no suggestions just for the sake of it',()=>{
@@ -34,4 +34,23 @@ test('a strong outfit gets no suggestions just for the sake of it',()=>{
  const jacket=p('c','jackets','#191919','denim','Streetwear','jacket');
  const all=suggestFor([jacket,tee,jeans,kicks],'Streetwear',[]);
  assert.ok(all.every(s=>s.gain>=2));
+});
+test('the garment type counts: sneakers beat heels in a streetwear outfit of the same colour',async()=>{
+ const {scoreLook}=await import('./colors.ts');
+ const shoe=(garment)=>p('x','shoes','#F5F5F5','leather','Streetwear',garment);
+ const score=(g)=>scoreLook([hoodie,joggers,shoe(g)],'Streetwear').score;
+ assert.ok(score('sneakers')>score('loafers'),'sneakers over loafers');
+ assert.ok(score('loafers')>score('heels'),'loafers over heels');
+});
+test('next buys group a piece across outfits and rank what helps most first',async()=>{
+ const {localNextBuys}=await import('./suggest.ts');
+ const tee=p('t','tops','#F5F5F5','cotton','Streetwear','t-shirt');
+ const outfits=[{items:[hoodie,joggers,heels],style:'Streetwear',source:'saved',name:'Mine'},{items:[tee,joggers,heels],style:'Streetwear',source:'generated',name:null}];
+ const buys=localNextBuys(outfits,[hoodie,joggers,heels,tee]);
+ assert.ok(buys.length>0);
+ assert.equal(buys[0].outfits,2);
+ assert.ok(buys.every((b,i)=>i===0||b.value<=buys[i-1].value));
+ const looks=buys.map(b=>`${b.spec.category}|${b.spec.color_name}|${b.spec.texture}`);
+ assert.equal(new Set(looks).size,looks.length,'one garment per colour and fabric');
+ assert.ok(buys[0].examples[0].after>buys[0].examples[0].before);
 });

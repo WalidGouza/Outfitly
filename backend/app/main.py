@@ -17,15 +17,16 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
-from sqlalchemy import select, text
+from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from .config import settings
 from .database import make_engine
-from .models import Base, User, Wardrobe, Cloth, Outfit
+from .models import Base, User, Wardrobe, Cloth, Outfit, Suggestion, SuggestionEvent
 from .embeddings import EmbeddingClient, EmbeddingUnavailable
 from .text_cache import TextEmbeddingStore
-from . import meaning
+from . import improve, meaning
+from . import persona as taste
 from .matching import SHAPES, is_outfit, rank, score_combo
 from . import attributes
 from .storage import ImageStorage, StorageUnavailable
@@ -64,12 +65,21 @@ async def lifespan(app):
         conn.execute(text("ALTER TABLE public.users ADD COLUMN IF NOT EXISTS username VARCHAR"))
         conn.execute(text("ALTER TABLE public.users ADD COLUMN IF NOT EXISTS avatar VARCHAR"))
         conn.execute(text("ALTER TABLE public.users ADD COLUMN IF NOT EXISTS wear VARCHAR"))
+        conn.execute(text("ALTER TABLE public.users ADD COLUMN IF NOT EXISTS persona JSON"))
     with engine.begin() as conn:
+        # Supabase's Data API roles; absent on plain PostgreSQL (CI, local Docker).
+        api_roles = conn.scalars(
+            text("SELECT rolname FROM pg_roles WHERE rolname IN ('anon', 'authenticated')")
+        ).all()
         for table in Base.metadata.sorted_tables:
             # Browser access must pass through FastAPI authorization. No Data API policies.
             conn.execute(
                 text(f'ALTER TABLE public."{table.name}" ENABLE ROW LEVEL SECURITY')
             )
+            # RLS without policies already hides the rows, but Supabase grants these roles every
+            # privilege on new tables, and TRUNCATE is not covered by RLS. The app never uses them.
+            for role in api_roles:
+                conn.execute(text(f'REVOKE ALL ON TABLE public."{table.name}" FROM "{role}"'))
     yield
 
 
@@ -77,7 +87,7 @@ app = FastAPI(title="Outfitly API", lifespan=lifespan, **api_options(s))
 app.add_middleware(
     CORSMiddleware,
     allow_origins=s.cors_origins,
-    allow_methods=["GET", "POST", "DELETE"],
+    allow_methods=["GET", "POST", "PATCH", "PUT", "DELETE"],
     allow_headers=["Authorization", "Content-Type"],
 )
 
@@ -349,6 +359,11 @@ def delete_account(body: Confirm, u=Depends(user), session=Depends(db)):
         for c in session.scalars(select(Cloth).where(Cloth.wardrobe_id.in_(ids))):
             photos.append(c.image)
             session.delete(c)
+    if ids:
+        for row in session.scalars(select(Suggestion).where(Suggestion.wardrobe_id.in_(ids))):
+            session.delete(row)
+    for row in session.scalars(select(SuggestionEvent).where(SuggestionEvent.user_id == u.id)):
+        session.delete(row)
     for w in wardrobes:
         session.delete(w)
     session.delete(u)
@@ -796,6 +811,256 @@ def today_sample(place: SamplePlace):
     ]
     semantic = {p.id: 0.72 + (0.2 if p.style == place.style else 0) for p in pieces}
     return today_response(pieces, semantic, place, w, plan)
+
+
+# ── Persona and suggestions ─────────────────────────────────────────────────
+def optional_style_vectors():
+    """Style vectors, or None while the ML service is down (Meaning then uses the tags alone)."""
+    try:
+        return style_vectors()
+    except EmbeddingUnavailable:
+        return None
+
+
+def piece_row(c):
+    return (c.id, c.category, c.garment or "", c.color, c.texture, c.style)
+
+
+def feedback_counts(uid, session):
+    rows = session.execute(
+        select(SuggestionEvent.action, func.count())
+        .where(SuggestionEvent.user_id == uid)
+        .group_by(SuggestionEvent.action)
+    ).all()
+    return {action: n for action, n in rows}
+
+
+def dismissed(uid, session):
+    return frozenset(
+        session.scalars(
+            select(SuggestionEvent.key)
+            .where(SuggestionEvent.user_id == uid, SuggestionEvent.action.in_(("dismissed", "owned")))
+            .distinct()
+        )
+    )
+
+
+def current_persona(u, session, vectors):
+    """The user's persona, recomputed only when something it is derived from has changed."""
+    mine = select(Wardrobe.id).where(Wardrobe.user_id == u.id)
+    pieces = list(session.scalars(select(Cloth).where(Cloth.wardrobe_id.in_(mine))))
+    outfits = list(session.scalars(select(Outfit).where(Outfit.wardrobe_id.in_(mine))))
+    feedback = feedback_counts(u.id, session)
+    fp = taste.fingerprint(
+        taste.VERSION, sorted(piece_row(c) for c in pieces), sorted((o.id, o.style) for o in outfits),
+        u.wear, feedback, vectors is not None,
+    )
+    stored = getattr(u, "persona", None)
+    if stored and stored.get("fingerprint") == fp:
+        return stored
+    u.persona = {**taste.derive(pieces, outfits, u.wear, vectors, feedback), "fingerprint": fp}
+    session.commit()
+    return u.persona
+
+
+def outfits_to_improve(pieces, saved_outfits, persona, vectors, rules, limit=24):
+    """The outfits suggestions are measured on: the saved ones, then the best the wardrobe makes
+    in each style the user wears most."""
+    by_id = {c.id: c for c in pieces}
+    found, seen = [], set()
+
+    def add(outfit, items):
+        signature = frozenset(c.id for c in items)
+        if signature not in seen and len(found) < limit:
+            seen.add(signature)
+            found.append((outfit, items))
+
+    for o in saved_outfits:
+        items = [by_id.get(cid) for cid in o.cloth_ids]
+        if all(items) and is_outfit(c.category for c in items) and o.style in meaning.AFFINITY:
+            add({"cloth_ids": list(o.cloth_ids), "style": o.style, "source": "saved", "name": o.name}, items)
+    for style in taste.top_styles(persona):
+        semantic = meaning.piece_scores(pieces, style, vectors)
+        pools = {}
+        for category in ("tops", "pants", "dresses", "shoes", "jackets"):
+            ranked = sorted((c for c in pieces if c.category == category), key=lambda c: semantic[c.id], reverse=True)
+            if ranked:
+                pools[category] = ranked[: rules["max_candidates"]]
+        for r in rank(pools, semantic, rules, limit=4):
+            add({"cloth_ids": [c.id for c in r["items"]], "style": style, "source": "generated", "name": None}, r["items"])
+    return found
+
+
+def suggestion_context(w, u, session):
+    """Everything both kinds of suggestions need, with the wardrobe-wide list kept up to date."""
+    vectors = optional_style_vectors()
+    persona = current_persona(u, session, vectors)
+    pieces = list(session.scalars(select(Cloth).where(Cloth.wardrobe_id == w.id)))
+    saved_outfits = list(session.scalars(select(Outfit).where(Outfit.wardrobe_id == w.id)))
+    rules = s.rules
+    exclude = dismissed(u.id, session) | {improve.piece_key(c) for c in pieces}
+    calib = improve.calibration(pieces, vectors)
+
+    def persona_fit(spec):
+        return taste.fit(persona, spec, rules)
+
+    def fit_for(style):
+        return improve.virtual_fit(style, calib)
+
+    fp = taste.fingerprint(
+        improve.VERSION, meaning.SCORE_VERSION, persona["fingerprint"], sorted(piece_row(c) for c in pieces),
+        sorted((o.id, o.style, list(o.cloth_ids)) for o in saved_outfits), sorted(exclude), rules,
+    )
+    rows = list(session.scalars(select(Suggestion).where(Suggestion.wardrobe_id == w.id).order_by(Suggestion.rank)))
+    if not rows or any(r.fingerprint != fp for r in rows):
+        per_outfit = []
+        for outfit, items in outfits_to_improve(pieces, saved_outfits, persona, vectors, rules):
+            semantic = meaning.piece_scores(items, outfit["style"], vectors)
+            per_outfit.append((outfit, improve.improvements(
+                items, outfit["style"], semantic, rules, fit_for(outfit["style"]), persona["wear"], exclude,
+            )))
+        ranked = improve.group(per_outfit, persona_fit, rules)
+        for r in rows:
+            session.delete(r)
+        rows = [
+            Suggestion(
+                wardrobe_id=w.id, fingerprint=fp, rank=-1, key=improve.REACH_KEY, value=0,
+                data={"reach": improve.reach(per_outfit), "considered": len(per_outfit)},
+            ),
+            *(
+                Suggestion(wardrobe_id=w.id, fingerprint=fp, rank=i, key=r["key"], value=r["value"], data=r)
+                for i, r in enumerate(ranked)
+            ),
+        ]
+        session.add_all(rows)
+        session.commit()
+    meta = next((r.data for r in rows if r.key == improve.REACH_KEY), {})
+    return SimpleNamespace(
+        vectors=vectors, persona=persona, rules=rules, exclude=exclude,
+        persona_fit=persona_fit, fit_for=fit_for,
+        ranked=[r.data for r in rows if r.key != improve.REACH_KEY],
+        **{k: meta.get(k, d) for k, d in (("reach", {}), ("considered", 0))},
+    )
+
+
+def persona_json(p):
+    return {k: v for k, v in p.items() if k != "fingerprint"}
+
+
+@app.get("/me/persona")
+def my_persona(u=Depends(user), session=Depends(db)):
+    """The taste profile shown on the profile page."""
+    return persona_json(current_persona(u, session, optional_style_vectors()))
+
+
+@app.get("/wardrobes/{wid}/suggestions")
+def wardrobe_suggestions(wid: str, u=Depends(user), session=Depends(db)):
+    """Pieces worth buying for this wardrobe, ranked by what they add across its outfits."""
+    w = owned(wid, u, session)
+    ctx = suggestion_context(w, u, session)
+    complete = any(set(shape) <= {c.category for c in session.scalars(select(Cloth).where(Cloth.wardrobe_id == wid))} for shape in SHAPES)
+    return {
+        "persona": persona_json(ctx.persona),
+        "suggestions": ctx.ranked,
+        # How many outfits were measured (saved + best generated), and whether any can be made.
+        "considered": ctx.considered,
+        "complete": complete,
+        "estimated": ctx.vectors is None,
+    }
+
+
+class Improve(BaseModel):
+    cloth_ids: list[str] = Field(min_length=2, max_length=4)
+    style: Style
+
+
+@app.post("/wardrobes/{wid}/improve")
+def improve_outfit(wid: str, body: Improve, u=Depends(user), session=Depends(db)):
+    """The best pieces to swap in or add to this outfit, each with how many other outfits it helps."""
+    w = owned(wid, u, session)
+    items = outfit_pieces(wid, body.cloth_ids, session)
+    ctx = suggestion_context(w, u, session)
+    semantic = meaning.piece_scores(items, body.style, ctx.vectors)
+    found = improve.improvements(
+        items, body.style, semantic, ctx.rules, ctx.fit_for(body.style), ctx.persona["wear"], ctx.exclude,
+    )
+    best = improve.best_for_outfit(found, ctx.persona_fit, ctx.rules)
+    return {
+        "suggestions": [{**b, "outfits": ctx.reach.get(b["key"])} for b in best],
+        "estimated": ctx.vectors is None,
+    }
+
+
+class EventSpec(BaseModel):
+    category: Literal["tops", "pants", "shoes", "jackets", "dresses"]
+    garment: str = Field(min_length=1, max_length=40)
+    color: str = Field(pattern=r"^#[0-9a-fA-F]{6}$")
+    color_name: str = Field(min_length=1, max_length=30)
+    texture: Literal["cotton", "denim", "knit", "leather", "linen", "silk", "other"]
+    style: str = Field(max_length=40)
+
+
+class Event(BaseModel):
+    action: Literal["shown", "saved", "unsaved", "dismissed", "owned", "clicked", "bought"]
+    key: str = Field(max_length=120)
+    spec: EventSpec
+    source: Literal["outfit", "lab", "next-buys"]
+    wardrobe_id: str | None = Field(None, max_length=40)
+    gain: int | None = Field(None, ge=-100, le=100)
+    position: int | None = Field(None, ge=0, le=50)
+    cloth_ids: list[str] = Field(default_factory=list, max_length=4)
+
+
+class Events(BaseModel):
+    events: list[Event] = Field(min_length=1, max_length=50)
+
+
+@app.post("/me/suggestion-events")
+def record_events(body: Events, u=Depends(user), session=Depends(db)):
+    """What the user did with suggestions; the persona learns from this history."""
+    for e in body.events:
+        if e.key != improve.key_of(e.spec.category, e.spec.garment, e.spec.color_name):
+            raise HTTPException(422, "This suggestion doesn’t match its description")
+        if e.wardrobe_id:
+            owned(e.wardrobe_id, u, session)
+        session.add(SuggestionEvent(
+            user_id=u.id, wardrobe_id=e.wardrobe_id, action=e.action, key=e.key, spec=e.spec.model_dump(),
+            context={"source": e.source, "gain": e.gain, "position": e.position, "cloth_ids": e.cloth_ids},
+        ))
+    session.commit()
+    return {"ok": True, "recorded": len(body.events)}
+
+
+@app.get("/me/wishlist")
+def wishlist(u=Depends(user), session=Depends(db)):
+    """Pieces the user saved from suggestions and hasn't taken off the list or said they own."""
+    latest = {}
+    rows = session.scalars(
+        select(SuggestionEvent)
+        .where(SuggestionEvent.user_id == u.id, SuggestionEvent.action.in_(("saved", "unsaved", "owned", "dismissed")))
+        .order_by(SuggestionEvent.created_at)
+    )
+    for e in rows:
+        latest[e.key] = e
+    return [
+        {
+            "key": e.key,
+            **improve.spec_of(e.spec["garment"], e.spec["color_name"], e.spec["style"]),
+            "saved_at": e.created_at.isoformat(timespec="seconds") if e.created_at else None,
+        }
+        for e in sorted(latest.values(), key=lambda e: e.created_at or 0, reverse=True)
+        if e.action == "saved" and e.spec.get("garment") in improve.TYPES and e.spec.get("color_name") in improve.COLOR_NAMES
+    ]
+
+
+@app.delete("/me/suggestion-events")
+def reset_taste(u=Depends(user), session=Depends(db)):
+    """Forgets every reaction to suggestions; the persona goes back to the wardrobe alone."""
+    rows = list(session.scalars(select(SuggestionEvent).where(SuggestionEvent.user_id == u.id)))
+    for row in rows:
+        session.delete(row)
+    session.commit()
+    return {"ok": True, "removed": len(rows)}
 
 
 @app.delete("/wardrobes/{wid}/outfits/{oid}")

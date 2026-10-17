@@ -1,5 +1,6 @@
 from uuid import uuid4
-from sqlalchemy import String, ForeignKey, JSON, Index, Integer
+from datetime import datetime, timezone
+from sqlalchemy import DateTime, Float, String, ForeignKey, JSON, Index, Integer
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from pgvector.sqlalchemy import Vector
 
@@ -22,6 +23,8 @@ class User(Base):
     avatar: Mapped[str | None] = mapped_column(String, nullable=True)
     # Which clothes the app offers: "women", "men" or "both" (null is treated as both).
     wear: Mapped[str | None] = mapped_column(String, nullable=True)
+    # Taste derived from the wardrobe (persona.derive), with the fingerprint it was computed for.
+    persona: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
 
 class Wardrobe(Base):
@@ -78,3 +81,42 @@ class TextEmbedding(Base):
     model: Mapped[str] = mapped_column(String, primary_key=True)
     text: Mapped[str] = mapped_column(String, primary_key=True)
     embedding: Mapped[list] = mapped_column(Vector(512))
+
+
+def now():
+    return datetime.now(timezone.utc)
+
+
+class Suggestion(Base):
+    """A piece worth buying for a wardrobe, ranked by what it adds across its outfits (improve.group).
+
+    Recomputed when the wardrobe, its saved outfits or the persona change (`fingerprint`).
+    """
+
+    __tablename__ = "suggestions"
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=uid)
+    wardrobe_id: Mapped[str] = mapped_column(ForeignKey("wardrobes.id"), index=True)
+    fingerprint: Mapped[str] = mapped_column(String)
+    rank: Mapped[int] = mapped_column(Integer)
+    key: Mapped[str] = mapped_column(String)
+    value: Mapped[float] = mapped_column(Float)
+    data: Mapped[dict] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+
+class SuggestionEvent(Base):
+    """What a user did with a suggestion: the history the persona will learn from.
+
+    action: shown | saved | dismissed | owned | clicked | bought. `spec` is the suggested piece,
+    `context` where it was shown (source, outfit, gain, position).
+    """
+
+    __tablename__ = "suggestion_events"
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=uid)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    wardrobe_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    action: Mapped[str] = mapped_column(String)
+    key: Mapped[str] = mapped_column(String)
+    spec: Mapped[dict] = mapped_column(JSON)
+    context: Mapped[dict] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)

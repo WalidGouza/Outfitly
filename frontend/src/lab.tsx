@@ -186,7 +186,7 @@ export function Lab({ app, lab, setLab }: { app: App; lab: LabState; setLab: Dis
                 </div>
               )}
               <div style={{ padding: "0 16px 16px" }}>
-                <Suggestions app={app} items={ordered(picked)} style={look.style} />
+                <Suggestions app={app} items={ordered(picked)} style={look.style} source="lab" />
               </div>
               <div className="outfit__foot">
                 <button className="btn btn--primary btn--block" aria-pressed={saved} onClick={() => app.saveLook(look)}>
