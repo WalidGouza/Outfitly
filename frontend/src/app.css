@@ -102,7 +102,26 @@ html[data-theme="dark"]:has(.app) { background: #0B0D0A; }
    No coral: it stays reserved for the logo and the "you are here" marker. */
 .tile--today__top { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: auto; }
 .tile--today__top .tile__icon { margin-bottom: 0; }
-.new-badge { display: inline-flex; align-items: center; height: 24px; padding: 0 10px; border-radius: 999px; background: var(--moss); color: #F6F2EA; font-size: 12px; font-weight: 650; letter-spacing: 0.01em; margin-right: 28px; }
+/* "New today": a frosted pill in the card's own glass, with a live dot that pings and a sheen
+   across the words, both on the card's 6s clock so they move with the glass sweep. */
+.new-badge {
+  position: relative; display: inline-flex; align-items: center; gap: 7px; height: 26px; padding: 0 11px 0 9px; margin-right: 28px;
+  border-radius: 999px; background: rgba(255, 255, 255, 0.45);
+  -webkit-backdrop-filter: blur(10px) saturate(180%); backdrop-filter: blur(10px) saturate(180%);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.7), inset 0 1px 1px rgba(255, 255, 255, 0.8), 0 4px 12px -6px rgba(108, 129, 96, 0.5);
+  font-size: 12px; font-weight: 650; letter-spacing: 0.01em;
+}
+.dark .new-badge { background: rgba(246, 242, 234, 0.1); box-shadow: inset 0 0 0 1px rgba(246, 242, 234, 0.22), inset 0 1px 1px rgba(246, 242, 234, 0.25), 0 4px 14px -6px rgba(0, 0, 0, 0.6); }
+.new-badge__dot { position: relative; flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--moss); }
+.dark .new-badge__dot { background: var(--sage); }
+.new-badge__dot::after { content: ""; position: absolute; inset: 0; border-radius: 50%; background: inherit; opacity: 0; }
+/* The words: moss text with a light band that passes once per cycle. At rest it's plain moss. */
+.new-badge__text {
+  color: var(--moss);
+  background: linear-gradient(100deg, var(--moss) 0 40%, #FFFFFF 50%, var(--moss) 60% 100%) 100% 0 / 260% 100% no-repeat;
+  -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+}
+.dark .new-badge__text { color: var(--sage); background-image: linear-gradient(100deg, var(--sage) 0 40%, #FFFFFF 50%, var(--sage) 60% 100%); }
 
 @property --ring-angle { syntax: "<angle>"; initial-value: 0deg; inherits: false; }
 .ow button.tile--new {
@@ -159,7 +178,22 @@ html[data-theme="dark"]:has(.app) { background: #0B0D0A; }
   .tile--new .ootd-sweep::before { animation: liquidSweepLoop 6000ms infinite; }
   /* The pieces re-enter with every sweep (the card itself stays put): rise in 100ms apart as the
      sheen starts, hold, then sink back out just before the next cycle. Same 6s clock as the sweep. */
+  /* Badge: arrives once, then pings and shines in step with the sweep. */
+  .tile--new .new-badge { animation: badge-in 260ms cubic-bezier(0.23, 1, 0.32, 1) both; }
+  .tile--new .new-badge__dot::after { animation: badge-ping 6000ms infinite; }
+  .tile--new .new-badge__text { animation: badge-shine 6000ms infinite; }
   .tile--new .inset-media { animation: staggerLoop 6000ms infinite both; animation-delay: calc(200ms + var(--i, 0) * 100ms); }
+}
+@keyframes badge-in { from { opacity: 0; transform: scale(0.94); } }
+/* A ring grows out of the dot and fades, as the sweep starts (0-20% of the cycle); then rest. */
+@keyframes badge-ping {
+  0% { opacity: 0.55; transform: scale(1); animation-timing-function: cubic-bezier(0.23, 1, 0.32, 1); }
+  20%, 100% { opacity: 0; transform: scale(3.2); }
+}
+/* The light band crosses the words while the glass sweep crosses the card. */
+@keyframes badge-shine {
+  0%, 6% { background-position: 100% 0; animation-timing-function: cubic-bezier(0.4, 0, 0.2, 1); }
+  22%, 100% { background-position: 0% 0; }
 }
 @keyframes staggerLoop {
   0% { opacity: 0; transform: translateY(12px); animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1); }

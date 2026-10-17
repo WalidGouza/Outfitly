@@ -176,7 +176,12 @@ export function Home({ app }: { app: App }) {
               <span className={`tile__icon${look ? " glass" : ""}`}>
                 <Icon name="sun" />
               </span>
-              {app.todayUnseen && <span className="new-badge">New today</span>}
+              {app.todayUnseen && (
+                <span className="new-badge">
+                  <span className="new-badge__dot" aria-hidden="true" />
+                  <span className="new-badge__text">New today</span>
+                </span>
+              )}
             </span>
             <span className="t-title">Outfit of the day</span>
             {app.today.weather && (
