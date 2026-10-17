@@ -28,7 +28,7 @@ import {
   type StudioState,
   type TodayState,
 } from "./screens";
-import { NextBuys } from "./nextbuys";
+import { NextBuys, buysSignature, useNextBuys } from "./nextbuys";
 
 // ── Routing: #/, #/today, #/wardrobes, #/wardrobe, #/studio, #/lab, #/saved, #/next, #/account, #/piece/<id> ──────
 function parse(hash: string): Route {
@@ -50,6 +50,8 @@ const nav: { route: Route["name"]; label: string; short: string; icon: IconName;
 ];
 const tabs = nav.filter((n) => n.tab);
 const SEEN_KEY = "outfitly-ootd-seen";
+// What Next buys showed first when last opened; absent until the page has been opened once.
+const BUYS_SEEN_KEY = "outfitly-buys-seen";
 const emptyToday: TodayState = { looks: [], index: 0, busy: false, error: "", weather: null, advice: [], missing: [], geo: "idle" };
 
 const dayOfYear = () => {
@@ -292,6 +294,28 @@ function App() {
     }
   }, [route.name, todayKey, seenKey]);
 
+  // Next buys: loaded for the app so Home can announce it. New until the page is opened: first the
+  // feature itself, then whenever its top ideas change. Kept unseen in dev, like the outfit of the day.
+  const nextBuys = useNextBuys(store, store.demo ? "both" : (me?.wear ?? "both"));
+  const buysKey = buysSignature(store.wid, nextBuys.result);
+  const [buysSeen, setBuysSeen] = useState(() => {
+    try {
+      return localStorage.getItem(BUYS_SEEN_KEY);
+    } catch {
+      return null;
+    }
+  });
+  useEffect(() => {
+    if (KEEP_OOTD_UNSEEN_FOR_TESTING || route.name !== "next" || !buysKey || buysKey === buysSeen) return;
+    setBuysSeen(buysKey);
+    try {
+      localStorage.setItem(BUYS_SEEN_KEY, buysKey);
+    } catch {
+      // Private windows can refuse storage; it still counts as seen for this visit.
+    }
+  }, [route.name, buysKey, buysSeen]);
+  const buysUnseen = !buysKey || (!KEEP_OOTD_UNSEEN_FOR_TESTING && buysKey === buysSeen) ? null : buysSeen === null ? "feature" : "ideas";
+
   // Outfit lab picks live here so they survive a visit to a piece's page; a new wardrobe starts empty.
   const [lab, setLab] = useState<LabState>(emptyLab);
   useEffect(() => setLab(emptyLab), [store.wid]);
@@ -315,6 +339,8 @@ function App() {
     runStudio,
     today,
     todayUnseen: !!todayKey && todayKey !== seenKey,
+    nextBuys,
+    buysUnseen,
     locate,
     pickAnother: () => setToday((t) => ({ ...t, index: (t.index + 1) % Math.max(1, t.looks.length) })),
     saveLook,

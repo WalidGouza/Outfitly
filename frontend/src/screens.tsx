@@ -5,6 +5,7 @@ import { KEEP_OOTD_UNSEEN_FOR_TESTING } from "./testing";
 import { describePiece } from "./describe";
 import { greeting } from "./greeting";
 import { StudioLoopVideo } from "./StudioLoopVideo";
+import { asPiece, type NextBuysState } from "./nextbuys";
 import {
   ColorLabel,
   Dialog,
@@ -57,6 +58,10 @@ export type App = {
   requireAccount: () => void;
   /** Today's outfit exists and the user hasn't opened it yet: Home announces it. */
   todayUnseen: boolean;
+  /** Next buys: the wardrobe-wide suggestions and saved list (useNextBuys). */
+  nextBuys: NextBuysState;
+  /** What's new on Next buys that the user hasn't seen: the feature itself, or new ideas. */
+  buysUnseen: "feature" | "ideas" | null;
   studio: StudioState;
   setStudio: (patch: Partial<StudioState>) => void;
   runStudio: (patch?: Partial<StudioState>) => void;
@@ -161,7 +166,7 @@ export function Home({ app }: { app: App }) {
       </div>
       <div className="tiles stagger">
         <button
-          className={`tile tile--ink tile--today${look ? " tile--liquid" : ""}${app.todayUnseen ? " tile--new" : ""}${entrance ? " tile--enter" : ""}`}
+          className={`tile tile--ink tile--feature${look ? " tile--liquid" : ""}${app.todayUnseen ? " tile--new" : ""}${entrance ? " tile--enter" : ""}`}
           onClick={() => go({ name: "today" })}
         >
           {/* Liquid glass: the outfit's own colours, blurred and drifting, under frosted panes. */}
@@ -173,8 +178,8 @@ export function Home({ app }: { app: App }) {
             </span>
           )}
           {(entrance || app.todayUnseen) && <span className="ootd-sweep" aria-hidden="true" />}
-          <span className="tile--today__text">
-            <span className="tile--today__top">
+          <span className="tile-feature__text">
+            <span className="tile-feature__top">
               <span className={`tile__icon${look ? " glass" : ""}`}>
                 <Icon name="sun" />
               </span>
@@ -206,7 +211,7 @@ export function Home({ app }: { app: App }) {
             </p>
           </span>
           {look && (
-            <span className="tile--today__pieces">
+            <span className="tile-feature__pieces">
               {ordered(look.items).map((p, i) => (
                 <span key={p.id} className="inset-media glass" style={{ ["--i" as string]: i }}>
                   <PieceArt piece={p} />
@@ -218,11 +223,11 @@ export function Home({ app }: { app: App }) {
             <Icon name="chevron" />
           </span>
         </button>
+        <BuysTile app={app} entrance={entrance} />
         <Tile icon="wardrobe" title="Wardrobe" text={`${plural(store.pieces.length, "piece")}, every colour named.`} onClick={() => go({ name: "wardrobe" })} />
         <Tile icon="studio" title="Outfit studio" text="Pick a style and colour direction." onClick={() => go({ name: "studio" })} />
         <Tile icon="saved" title="Saved" text={`${plural(store.saved.length, "look")} kept for later.`} onClick={() => go({ name: "saved" })} />
         <Tile icon="lab" title="Outfit lab" text="Mix your own outfit and get a rating." onClick={() => go({ name: "lab" })} />
-        <Tile icon="bag" title="Next buys" text="The pieces that would do most for your outfits." onClick={() => go({ name: "next" })} />
         <Tile icon="camera" title="Add a piece" text="Snap it and we fill in the details." onClick={app.openAdd} />
       </div>
       <section className="section">
@@ -246,6 +251,65 @@ export function Home({ app }: { app: App }) {
         )}
       </section>
     </>
+  );
+}
+
+/** Next buys on Home: the same feature card as the outfit of the day, with the same "something
+ *  new" animation (sage card, ring of light, glass sweep, pieces re-entering) until it's opened,
+ *  first to introduce the page, then whenever its top ideas change. */
+function BuysTile({ app, entrance }: { app: App; entrance: boolean }) {
+  const top = (app.nextBuys.result?.suggestions ?? []).slice(0, 3);
+  const best = top[0];
+  const unseen = app.buysUnseen;
+  return (
+    <button
+      className={`tile tile--ink tile--feature tile--buys${top.length ? " tile--liquid" : ""}${unseen ? " tile--new" : ""}${entrance ? " tile--enter" : ""}`}
+      onClick={() => app.go({ name: "next" })}
+    >
+      {top.length > 0 && (
+        <span className="ootd-liquid" aria-hidden="true">
+          {top.map((s) => (
+            <i key={s.key} style={{ background: s.spec.color }} />
+          ))}
+        </span>
+      )}
+      {(entrance || unseen) && <span className="ootd-sweep" aria-hidden="true" />}
+      <span className="tile-feature__text">
+        <span className="tile-feature__top">
+          <span className={`tile__icon${top.length ? " glass" : ""}`}>
+            <Icon name="bag" />
+          </span>
+          {unseen && (
+            <span className="new-badge">
+              <span className="new-badge__dot" aria-hidden="true" />
+              <span className="new-badge__text">{unseen === "feature" ? "New feature" : "New ideas"}</span>
+            </span>
+          )}
+        </span>
+        <span className="t-title">Next buys</span>
+        <p>
+          {best
+            ? unseen === "feature"
+              ? `The pieces that would do most for your wardrobe, starting with the ${best.title.toLowerCase()}${best.outfits > 1 ? `: it would improve ${best.outfits} of your outfits.` : "."}`
+              : `${best.title}${best.outfits > 1 ? ` would improve ${best.outfits} of your outfits.` : " would lift your outfits."}`
+            : app.nextBuys.result
+              ? "Your wardrobe is well balanced: nothing would clearly improve it right now."
+              : "The pieces that would do most for your outfits."}
+        </p>
+      </span>
+      {top.length > 0 && (
+        <span className="tile-feature__pieces">
+          {top.map((s, i) => (
+            <span key={s.key} className="inset-media glass" style={{ ["--i" as string]: i }}>
+              <PieceArt piece={asPiece(s)} />
+            </span>
+          ))}
+        </span>
+      )}
+      <span className="tile__chev">
+        <Icon name="chevron" />
+      </span>
+    </button>
   );
 }
 

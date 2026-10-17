@@ -5,7 +5,7 @@
 // ranked by what they add across all of them, weighted by the persona. The sample wardrobe gets
 // the same idea computed in the browser (suggest.ts localNextBuys).
 import { useEffect, useMemo, useState } from "react";
-import { categories, type Category, type Piece } from "./store";
+import { categories, type Category, type Piece, type Store, type Wear } from "./store";
 import type { App } from "./screens";
 import { localNextBuys, recordSuggestions, type BuyExample, type NextBuy, type NextBuysResult, type SuggestionAction, type WishItem } from "./suggest";
 import { Icon, PieceArt, Seg, ordered } from "./ui";
@@ -15,7 +15,7 @@ const plural = (n: number, one: string, many = one + "s") => `${n} ${n === 1 ? o
 const LABEL: Record<Category, string> = { tops: "Tops", pants: "Bottoms", dresses: "Dresses", shoes: "Shoes", jackets: "Layers" };
 
 /** A suggested piece drawn like an owned one (no photo: the garment's shape in its colour). */
-const asPiece = (b: { key: string; title: string; spec: NextBuy["spec"] }): Piece => ({
+export const asPiece = (b: { key: string; title: string; spec: NextBuy["spec"] }): Piece => ({
   id: b.key, name: b.title, category: b.spec.category, color: b.spec.color, texture: b.spec.texture, style: b.spec.style, garment: b.spec.garment, image: null,
 });
 
@@ -34,15 +34,13 @@ function writeDemoWishlist(list: WishItem[]) {
   }
 }
 
-export function NextBuys({ app }: { app: App }) {
-  const { store } = app;
+/** The wardrobe's Next buys and the saved list, kept up to date as the wardrobe changes.
+ *  Owned by the app (main.tsx), so Home can announce new ideas before the page is opened. */
+export function useNextBuys(store: Store, wear: Wear) {
   const { demo, wid, call } = store;
   const [result, setResult] = useState<NextBuysResult | null>(null);
   const [error, setError] = useState("");
   const [wishlist, setWishlist] = useState<WishItem[]>([]);
-  const [hidden, setHidden] = useState<string[]>([]);
-  const [filter, setFilter] = useState<"all" | Category>("all");
-  const [open, setOpen] = useState<string | null>(null);
   const changes = `${store.pieces.map((p) => p.id).join()}|${store.saved.map((l) => l.id).join()}`;
 
   useEffect(() => {
@@ -60,7 +58,7 @@ export function NextBuys({ app }: { app: App }) {
             ...store.saved.map((l) => ({ items: l.items, style: l.style, source: "saved" as const, name: l.name ?? null })),
             ...lists.flatMap((looks) => looks.slice(0, 4).map((l) => ({ items: l.items, style: l.style, source: "generated" as const, name: null }))),
           ];
-          setResult({ suggestions: localNextBuys(outfits, store.pieces, app.wear), considered: outfits.length, complete: outfits.length > 0, estimated: true });
+          setResult({ suggestions: localNextBuys(outfits, store.pieces, wear), considered: outfits.length, complete: outfits.length > 0, estimated: true });
           setWishlist(readDemoWishlist());
         })
         .catch((e) => active && setError((e as Error).message));
@@ -77,8 +75,22 @@ export function NextBuys({ app }: { app: App }) {
       active = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- `changes` stands for the wardrobe's contents
-  }, [demo, wid, call, changes, app.wear]);
+  }, [demo, wid, call, changes, wear]);
+  return { result, error, wishlist, setWishlist };
+}
+export type NextBuysState = ReturnType<typeof useNextBuys>;
 
+/** Identifies what Next buys currently shows first: when it changes, Home says there's something new. */
+export const buysSignature = (wid: string | null, result: NextBuysResult | null) =>
+  wid && result?.suggestions.length ? `${wid}|${result.suggestions.slice(0, 3).map((s) => s.key).join(",")}` : "";
+
+export function NextBuys({ app }: { app: App }) {
+  const { store } = app;
+  const { demo, wid, call } = store;
+  const { result, error, wishlist, setWishlist } = app.nextBuys;
+  const [hidden, setHidden] = useState<string[]>([]);
+  const [filter, setFilter] = useState<"all" | Category>("all");
+  const [open, setOpen] = useState<string | null>(null);
   const all = useMemo(() => (result?.suggestions ?? []).filter((s) => !hidden.includes(s.key)), [result, hidden]);
   const present = categories.map((c) => c.key).filter((c) => all.some((s) => s.spec.category === c));
   const list = all.filter((s) => filter === "all" || s.spec.category === filter);

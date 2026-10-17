@@ -89,10 +89,10 @@ html[data-theme="dark"]:has(.app) { background: #0B0D0A; }
 .note .icon-btn { color: inherit; }
 .empty { display: flex; flex-direction: column; align-items: flex-start; gap: 14px; }
 
-/* Home: outfit-of-the-day tile */
-.tile--today { flex-direction: row !important; flex-wrap: wrap; align-items: center; gap: 28px !important; min-height: 200px; padding: 24px 28px !important; }
-.tile--today__text { display: flex; flex-direction: column; gap: 8px; flex: 1 1 220px; align-self: stretch; }
-.tile--today__pieces { display: flex; flex-wrap: wrap; gap: 12px; }
+/* Home: feature cards (outfit of the day, Next buys) — same layout and "something new" animation */
+.tile--feature { flex-direction: row !important; flex-wrap: wrap; align-items: center; gap: 28px !important; min-height: 200px; padding: 24px 28px !important; }
+.tile-feature__text { display: flex; flex-direction: column; gap: 8px; flex: 1 1 220px; align-self: stretch; }
+.tile-feature__pieces { display: flex; flex-wrap: wrap; gap: 12px; }
 .inset-media { display: grid; place-items: center; width: 116px; height: 116px; border-radius: 18px; background: var(--feature-inset); overflow: hidden; }
 .inset-media svg { width: 84px; height: 84px; }
 .tile .tile__chev { display: grid; }
@@ -100,8 +100,8 @@ html[data-theme="dark"]:has(.app) { background: #0B0D0A; }
 /* Unseen outfit of the day: the card turns sage, a ring of light travels around its edge
    and the card glows, until the outfit is opened.
    No coral: it stays reserved for the logo and the "you are here" marker. */
-.tile--today__top { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: auto; }
-.tile--today__top .tile__icon { margin-bottom: 0; }
+.tile-feature__top { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: auto; }
+.tile-feature__top .tile__icon { margin-bottom: 0; }
 /* "New today": a frosted pill in the card's own glass, with a live dot that pings and a sheen
    across the words, both on the card's 6s clock so they move with the glass sweep. */
 .new-badge {
@@ -145,10 +145,10 @@ html[data-theme="dark"]:has(.app) { background: #0B0D0A; }
 .ow.dark .tile--new::before {
   background: conic-gradient(from var(--ring-angle), transparent 0deg, rgba(169, 185, 155, 0.12) 60deg, #A9B99B 150deg, #F6F2EA 180deg, #7E9468 210deg, rgba(169, 185, 155, 0.12) 300deg, transparent 360deg);
 }
-.tile--today > * { position: relative; z-index: 2; }
-.tile--today > .tile__chev { position: absolute; }
-.tile--today > .ootd-liquid { position: absolute; z-index: 0; }
-.tile--today > .ootd-sweep { position: absolute; z-index: 3; }
+.tile--feature > * { position: relative; z-index: 2; }
+.tile--feature > .tile__chev { position: absolute; }
+.tile--feature > .ootd-liquid { position: absolute; z-index: 0; }
+.tile--feature > .ootd-sweep { position: absolute; z-index: 3; }
 @media (prefers-reduced-motion: no-preference) {
   /* Constant motion, so linear: one lap every 3.2s. */
   .tile--new::before { animation: ring-spin 3200ms linear infinite; }
@@ -158,7 +158,7 @@ html[data-theme="dark"]:has(.app) { background: #0B0D0A; }
    the card rises out of a blur, a specular sweep crosses it, then the pieces pop in 100ms apart.
    Starting states live inside the keyframes (fill "both"), so with reduced motion, where
    animations are switched off, everything is simply visible. */
-.tile--today { overflow: hidden; }
+.tile--feature { overflow: hidden; }
 .ootd-sweep { inset: 0; pointer-events: none; border-radius: inherit; overflow: hidden; }
 .ootd-sweep::before {
   content: ""; position: absolute; inset: 0;
@@ -230,7 +230,7 @@ html[data-theme="dark"]:has(.app) { background: #0B0D0A; }
 }
 
 /* Later visits the same day: the card is simply there (no grid rise either). */
-.ow .tiles.stagger > button.tile--today:not(.tile--enter):not(.tile--new) { animation: none; }
+.ow .tiles.stagger > button.tile--feature:not(.tile--enter):not(.tile--new) { animation: none; }
 @keyframes liquidGlassEntry {
   from { opacity: 0; transform: translateY(24px) scale(0.97); filter: blur(8px); }
   to { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
@@ -355,7 +355,7 @@ html[data-theme="dark"]:has(.app) { background: #0B0D0A; }
   .web .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
   .web .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
   .web .tile { min-height: 148px; padding: 16px; }
-  .tile--today { padding: 18px !important; gap: 16px !important; }
+  .tile--feature { padding: 18px !important; gap: 16px !important; }
   .inset-media { width: 64px; height: 64px; border-radius: 14px; }
   .inset-media svg { width: 46px; height: 46px; }
   .studio__settings { position: static; max-width: none; }
