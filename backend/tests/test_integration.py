@@ -35,6 +35,8 @@ def client(tmp_path, monkeypatch):
 
     monkeypatch.setattr(main.embeddings, "image", fake_embed)
     monkeypatch.setattr(main.embeddings, "text", fake_embed)
+    # Meaning compares photos with the five style descriptions (meaning.PROMPTS).
+    monkeypatch.setattr(main.embeddings, "texts", lambda values: [fake_embed(v) for v in values])
     with TestClient(main.app) as c:
         yield c
     Base.metadata.drop_all(engine)

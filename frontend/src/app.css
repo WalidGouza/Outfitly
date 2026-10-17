@@ -524,3 +524,13 @@ html[data-theme="dark"]:has(.app) { background: #0B0D0A; }
 .suggestion__reason { font-size: 14px; line-height: 1.4; color: color-mix(in srgb, var(--feature-fg) 78%, transparent); }
 @media (max-width: 760px) { .outfit-details__pieces .pieces { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .dark .suggestion__swatch { box-shadow: inset 0 0 0 1px rgba(246, 242, 234, 0.3), 0 0 0 2px var(--surface); }
+
+/* Touch: no grey tap flash, no text selection or callout when pressing controls */
+.ow button, .ow a, .ow label { -webkit-tap-highlight-color: transparent; }
+.ow button, .ow .seg, .ow .anchor, .ow .tile { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+/* Segmented controls slide horizontally; vertical swipes still scroll the page */
+.ow .seg { touch-action: pan-y; }
+/* The sheet's drag zone (grab bar + header) is all the sheet's, not the page's */
+.msheet__drag { display: flex; flex-direction: column; gap: 16px; margin: -8px -20px 0; padding: 8px 20px 0; touch-action: none; cursor: grab; }
+.msheet__drag:active { cursor: grabbing; }
+.msheet__drag .msheet__grab { align-self: center; }

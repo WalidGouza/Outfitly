@@ -33,7 +33,10 @@ class Session:
 
     def scalars(self, stmt):
         params = stmt.compile().params.values()
-        category = next(v for v in params if v in CATEGORIES)
+        category = next((v for v in params if v in CATEGORIES), None)
+        if category is None:
+            # The "which categories does this wardrobe have" check.
+            return iter({p.category for p in PIECES.values()})
         return SimpleNamespace(all=lambda: [p for p in PIECES.values() if p.category == category])
 
 
@@ -70,3 +73,24 @@ def test_generated_and_saved_scores_agree(client):
     look = client.post("/wardrobes/w/generate", json={"style": "Everyday", "include_jacket": False, "anchor_id": "t1"}).json()[0]
     items = [PIECES[i["id"]] for i in look["items"]]
     assert main.saved_score(items, "Everyday")["score"] == look["score"]
+
+
+def test_an_incomplete_wardrobe_is_told_what_to_add_even_without_the_ml_service(monkeypatch):
+    from app.embeddings import EmbeddingUnavailable
+
+    def down(*args):
+        raise EmbeddingUnavailable("down")
+
+    class Empty(Session):
+        def scalars(self, stmt):
+            return iter({"tops"})  # only tops: no outfit possible
+
+    monkeypatch.setattr(main.embeddings, "text", down)
+    monkeypatch.setattr(main.embeddings, "texts", down)
+    main.app.dependency_overrides[main.db] = lambda: Empty()
+    main.app.dependency_overrides[main.user] = lambda: SimpleNamespace(id="owner")
+    try:
+        r = TestClient(main.app).post("/wardrobes/w/generate", json={})
+    finally:
+        main.app.dependency_overrides.clear()
+    assert r.status_code == 400 and "dress and shoes" in r.json()["detail"]

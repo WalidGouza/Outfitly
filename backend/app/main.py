@@ -26,7 +26,7 @@ from .models import Base, User, Wardrobe, Cloth, Outfit
 from .embeddings import EmbeddingClient, EmbeddingUnavailable
 from .text_cache import TextEmbeddingStore
 from . import meaning
-from .matching import is_outfit, rank, score_combo
+from .matching import SHAPES, is_outfit, rank, score_combo
 from . import attributes
 from .storage import ImageStorage, StorageUnavailable
 from .run import api_options
@@ -533,6 +533,11 @@ class Generate(BaseModel):
 @app.post("/wardrobes/{wid}/generate")
 def generate(wid: str, body: Generate, u=Depends(user), session=Depends(db)):
     owned(wid, u, session)
+    # Checked before any ML call, so an incomplete wardrobe always gets this clear answer,
+    # even while the ML service is unavailable.
+    present = set(session.scalars(select(Cloth.category).where(Cloth.wardrobe_id == wid).distinct()))
+    if not any(set(shape) <= present for shape in SHAPES):
+        raise HTTPException(400, "Add a top, bottoms and shoes, or a dress and shoes")
     style_text = f"A {body.style} fashion outfit with coordinated textures"
     query = embeddings.text(style_text)
     anchor = None

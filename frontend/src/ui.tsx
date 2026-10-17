@@ -74,6 +74,15 @@ export function Dots({ colors }: { colors: string[] }) {
   );
 }
 
+/** A light haptic tick on selection changes (Android; iPhone browsers don't expose vibration). */
+export function tick() {
+  try {
+    navigator.vibrate?.(8);
+  } catch {
+    // Vibration can be blocked by the browser; the visual change is enough.
+  }
+}
+
 // ── Segmented control with a sliding thumb ─────────────────────────────────
 export function Seg<T extends string>({
   options,
@@ -95,8 +104,50 @@ export function Seg<T extends string>({
   optStyle?: React.CSSProperties;
 }) {
   const index = Math.max(0, options.findIndex((o) => o.value === value));
+  // Slide to select, like iOS: press anywhere on the control and move across it; the thumb
+  // follows the finger and each new option gives a haptic tick. A plain tap still uses click.
+  const slide = useRef<{ x: number; sliding: boolean; last: number } | null>(null);
+  const optionAt = (el: HTMLElement, clientX: number) => {
+    const r = el.getBoundingClientRect();
+    return Math.min(options.length - 1, Math.max(0, Math.floor(((clientX - r.left) / r.width) * options.length)));
+  };
+  const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return;
+    slide.current = { x: e.clientX, sliding: false, last: index };
+  };
+  const onPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    const s = slide.current;
+    if (!s) return;
+    if (!s.sliding) {
+      if (Math.abs(e.clientX - s.x) < 6) return;
+      s.sliding = true;
+      try {
+        e.currentTarget.setPointerCapture(e.pointerId);
+      } catch {
+        // The pointer can already be gone (very fast taps); dragging still works without capture.
+      }
+    }
+    const i = optionAt(e.currentTarget, e.clientX);
+    if (i !== s.last) {
+      s.last = i;
+      tick();
+      onChange(options[i].value);
+    }
+  };
+  const onPointerEnd = () => {
+    slide.current = null;
+  };
   return (
-    <div className={`seg ${className}`} role={radio ? "radiogroup" : "group"} aria-label={label} style={style}>
+    <div
+      className={`seg ${className}`}
+      role={radio ? "radiogroup" : "group"}
+      aria-label={label}
+      style={style}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerEnd}
+      onPointerCancel={onPointerEnd}
+    >
       <span
         className="seg__thumb"
         style={{ width: `calc((100% - 4px) / ${options.length})`, transform: `translateX(${index * 100}%)` }}
@@ -108,7 +159,10 @@ export function Seg<T extends string>({
           className="seg__opt"
           style={optStyle}
           {...(radio ? { role: "radio", "aria-checked": o.value === value } : { "aria-pressed": o.value === value })}
-          onClick={() => onChange(o.value)}
+          onClick={() => {
+            if (o.value !== value) tick();
+            onChange(o.value);
+          }}
         >
           {o.label}
         </button>

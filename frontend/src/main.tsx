@@ -9,7 +9,7 @@ import { KEEP_OOTD_UNSEEN_FOR_TESTING } from "./testing";
 import { Logo, LogoSymbol } from "./brand";
 import { resolvedTheme, validTheme, type Theme } from "./theme";
 import { styles, TOKEN_KEY, useWardrobeStore, type Coords, type Look, type Piece } from "./store";
-import { Collar, Dialog, DialogHead, Dots, Icon, Seg, Toast, type IconName, type ToastData } from "./ui";
+import { Collar, Dialog, DialogHead, Dots, Icon, Seg, Toast, tick, type IconName, type ToastData } from "./ui";
 import {
   AddPiece,
   AuthDialog,
@@ -465,10 +465,58 @@ function WardrobeSheet({ open, onClose, store, pick, create }: { open: boolean; 
     document.addEventListener("keydown", key);
     return () => document.removeEventListener("keydown", key);
   }, [open, onClose]);
+
+  // Drag to dismiss, from the grab bar or the header: the sheet follows the finger, dragging up
+  // resists (rubber band), and letting go past a third of its height or with a quick flick closes it.
+  // Otherwise it settles back on the drawer curve.
+  const sheet = useRef<HTMLElement>(null);
+  const scrim = useRef<HTMLDivElement>(null);
+  const drag = useRef<{ y: number; t: number; dy: number } | null>(null);
+  const onDragStart = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0 || (e.target as HTMLElement).closest("button")) return;
+    drag.current = { y: e.clientY, t: performance.now(), dy: 0 };
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId);
+    } catch {
+      // The pointer can already be gone (very fast taps); dragging still works without capture.
+    }
+    if (sheet.current) sheet.current.style.transition = "none";
+    if (scrim.current) scrim.current.style.transition = "none";
+  };
+  const onDragMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    const d = drag.current;
+    if (!d || !sheet.current) return;
+    const raw = e.clientY - d.y;
+    d.dy = raw < 0 ? raw * 0.2 : raw;
+    sheet.current.style.transform = `translateY(${d.dy}px)`;
+    if (scrim.current) scrim.current.style.opacity = String(Math.max(0, 1 - d.dy / sheet.current.offsetHeight));
+  };
+  const onDragEnd = (cancelled: boolean) => {
+    const d = drag.current;
+    drag.current = null;
+    if (!d || !sheet.current) return;
+    const height = sheet.current.offsetHeight;
+    const speed = d.dy / Math.max(1, performance.now() - d.t); // px per ms
+    // Hand back to the CSS transitions: they animate from wherever the finger let go.
+    for (const el of [sheet.current, scrim.current]) el?.style.removeProperty("transition");
+    sheet.current.style.removeProperty("transform");
+    scrim.current?.style.removeProperty("opacity");
+    if (!cancelled && (d.dy > height / 3 || (speed > 0.5 && d.dy > 24))) {
+      tick();
+      onClose();
+    }
+  };
   return (
     <>
-      <div className={`scrim scrim--sheet${open ? " is-open" : ""}`} onClick={onClose} aria-hidden="true" />
-      <section className={`msheet glass glass--thick${open ? " is-open" : ""}`} role="dialog" aria-modal="true" aria-labelledby="ws-title" aria-hidden={!open} inert={!open}>
+      <div ref={scrim} className={`scrim scrim--sheet${open ? " is-open" : ""}`} onClick={onClose} aria-hidden="true" />
+      <section ref={sheet} className={`msheet glass glass--thick${open ? " is-open" : ""}`} role="dialog" aria-modal="true" aria-labelledby="ws-title" aria-hidden={!open} inert={!open}>
+        <div
+          className="msheet__drag"
+          onPointerDown={onDragStart}
+          onPointerMove={onDragMove}
+          onPointerUp={() => onDragEnd(false)}
+          onPointerCancel={() => onDragEnd(true)}
+        >
         <span className="msheet__grab" aria-hidden="true" />
         <div className="msheet__head">
           <h2 className="t-title" id="ws-title">
@@ -478,12 +526,16 @@ function WardrobeSheet({ open, onClose, store, pick, create }: { open: boolean; 
             <Icon name="close" />
           </button>
         </div>
+        </div>
         <div className="group" role="radiogroup" aria-labelledby="ws-title" style={{ background: "var(--surface-2)" }}>
           {store.wardrobes.map((w) => {
             const s = store.summaries[w.id];
             const on = w.id === store.wid;
             return (
-              <button key={w.id} className="row" role="radio" aria-checked={on} onClick={() => pick(w.id)} style={{ width: "100%", border: 0, background: "none", textAlign: "left", minHeight: 62 }}>
+              <button key={w.id} className="row" role="radio" aria-checked={on} onClick={() => {
+                  if (!on) tick();
+                  pick(w.id);
+                }} style={{ width: "100%", border: 0, background: "none", textAlign: "left", minHeight: 62 }}>
                 <Dots colors={s?.colors ?? []} />
                 <span style={{ flex: 1, display: "flex", flexDirection: "column" }}>
                   <span className="t-head">{w.name}</span>
