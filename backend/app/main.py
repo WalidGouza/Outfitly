@@ -25,7 +25,7 @@ from .database import make_engine
 from .models import Base, User, Wardrobe, Cloth, Outfit, Suggestion, SuggestionEvent
 from .embeddings import EmbeddingClient, EmbeddingUnavailable
 from .text_cache import TextEmbeddingStore
-from . import improve, meaning
+from . import improve, learning, meaning
 from . import persona as taste
 from .matching import SHAPES, is_outfit, rank, score_combo
 from . import attributes
@@ -66,6 +66,7 @@ async def lifespan(app):
         conn.execute(text("ALTER TABLE public.users ADD COLUMN IF NOT EXISTS avatar VARCHAR"))
         conn.execute(text("ALTER TABLE public.users ADD COLUMN IF NOT EXISTS wear VARCHAR"))
         conn.execute(text("ALTER TABLE public.users ADD COLUMN IF NOT EXISTS persona JSON"))
+        conn.execute(text("ALTER TABLE public.users ADD COLUMN IF NOT EXISTS styles JSON"))
     with engine.begin() as conn:
         # Supabase's Data API roles; absent on plain PostgreSQL (CI, local Docker).
         api_roles = conn.scalars(
@@ -247,13 +248,18 @@ def login(body: Credentials, session=Depends(db)):
 
 # ── Account: profile, password, photo, deletion ─────────────────────────────
 def me_json(u):
-    return {"email": u.email, "username": u.username, "avatar": bool(u.avatar), "wear": getattr(u, "wear", None)}
+    return {
+        "email": u.email, "username": u.username, "avatar": bool(u.avatar), "wear": getattr(u, "wear", None),
+        "styles": getattr(u, "styles", None),
+    }
 
 
 class Profile(BaseModel):
     # Letters (any language), digits, spaces and . _ - ; trimmed before checking.
     username: str | None = Field(None, min_length=2, max_length=30, pattern=r"^[\w .-]+$")
     wear: Literal["women", "men", "both"] | None = None
+    # The styles they like, from first sign-in or the profile; [] when they skipped.
+    styles: list[Literal["Everyday", "Minimal", "Smart casual", "Streetwear", "Evening"]] | None = Field(None, max_length=5)
 
 
 class PasswordChange(BaseModel):
@@ -277,7 +283,7 @@ def me(u=Depends(user)):
 
 @app.patch("/me")
 def update_me(body: Profile, u=Depends(user), session=Depends(db)):
-    if body.username is None and body.wear is None:
+    if body.username is None and body.wear is None and body.styles is None:
         raise HTTPException(422, "Nothing to update")
     if body.username is not None:
         name = " ".join(body.username.split())
@@ -286,6 +292,8 @@ def update_me(body: Profile, u=Depends(user), session=Depends(db)):
         u.username = name
     if body.wear is not None:
         u.wear = body.wear
+    if body.styles is not None:
+        u.styles = list(dict.fromkeys(body.styles))  # in the order picked, once each
     session.commit()
     return me_json(u)
 
@@ -496,7 +504,31 @@ def upload(
         except Exception:
             logger.error("Image cleanup failed after database rollback")
         raise
+    followed(u, c, session)
     return cloth_json(c)
+
+
+def followed(u, c, session):
+    """Records an "added" reaction when a new piece matches one we suggested to this user.
+    Best effort: learning never gets in the way of an upload."""
+    try:
+        key = improve.piece_key(c)
+        suggested = session.scalar(
+            select(SuggestionEvent)
+            .where(SuggestionEvent.user_id == u.id, SuggestionEvent.key == key, SuggestionEvent.action != "added")
+            .order_by(SuggestionEvent.created_at.desc())
+            .limit(1)
+        )
+        if suggested is None:
+            return
+        session.add(SuggestionEvent(
+            user_id=u.id, wardrobe_id=c.wardrobe_id, action="added", key=key, spec=suggested.spec,
+            context={"source": "upload", "cloth_id": c.id},
+        ))
+        session.commit()
+    except Exception:
+        session.rollback()
+        logger.warning("Couldn't record a followed suggestion", exc_info=True)
 
 
 @app.delete("/wardrobes/{wid}/clothes/{cid}")
@@ -830,13 +862,19 @@ def piece_row(c):
     return (c.id, c.category, c.garment or "", c.color, c.texture, c.style)
 
 
-def feedback_counts(uid, session):
-    rows = session.execute(
-        select(SuggestionEvent.action, func.count())
-        .where(SuggestionEvent.user_id == uid)
-        .group_by(SuggestionEvent.action)
+def reactions(uid, session):
+    """Every reaction to a suggestion (all but "shown"), and how often each piece was shown."""
+    events = session.execute(
+        select(SuggestionEvent.action, SuggestionEvent.key, SuggestionEvent.spec, SuggestionEvent.created_at)
+        .where(SuggestionEvent.user_id == uid, SuggestionEvent.action != "shown")
+        .order_by(SuggestionEvent.created_at)
     ).all()
-    return {action: n for action, n in rows}
+    shown = session.execute(
+        select(SuggestionEvent.key, func.count())
+        .where(SuggestionEvent.user_id == uid, SuggestionEvent.action == "shown")
+        .group_by(SuggestionEvent.key)
+    ).all()
+    return [tuple(e) for e in events], {key: n for key, n in shown}
 
 
 def dismissed(uid, session):
@@ -854,15 +892,24 @@ def current_persona(u, session, vectors):
     mine = select(Wardrobe.id).where(Wardrobe.user_id == u.id)
     pieces = list(session.scalars(select(Cloth).where(Cloth.wardrobe_id.in_(mine))))
     outfits = list(session.scalars(select(Outfit).where(Outfit.wardrobe_id.in_(mine))))
-    feedback = feedback_counts(u.id, session)
+    events, shown = reactions(u.id, session)
+    feedback = {}
+    for action, *_ in events:
+        feedback[action] = feedback.get(action, 0) + 1
+    learned = learning.learn(events, shown)
+    # "Shown" events and time only move the weights a little: coarse() keeps those from
+    # recomputing everything on every visit, while real reactions do.
     fp = taste.fingerprint(
         taste.VERSION, sorted(piece_row(c) for c in pieces), sorted((o.id, o.style) for o in outfits),
-        u.wear, feedback, vectors is not None,
+        u.wear, getattr(u, "styles", None), feedback, learning.coarse(learned), vectors is not None,
     )
     stored = getattr(u, "persona", None)
     if stored and stored.get("fingerprint") == fp:
         return stored
-    u.persona = {**taste.derive(pieces, outfits, u.wear, vectors, feedback), "fingerprint": fp}
+    u.persona = {
+        **taste.derive(pieces, outfits, u.wear, vectors, feedback, learned, chosen=getattr(u, "styles", None)),
+        "fingerprint": fp,
+    }
     session.commit()
     return u.persona
 

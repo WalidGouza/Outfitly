@@ -23,6 +23,9 @@ class User(Base):
     avatar: Mapped[str | None] = mapped_column(String, nullable=True)
     # Which clothes the app offers: "women", "men" or "both" (null is treated as both).
     wear: Mapped[str | None] = mapped_column(String, nullable=True)
+    # Styles the user picked when they first signed in: the persona's starting point before the
+    # wardrobe says more. Null = never asked (the app asks), [] = skipped.
+    styles: Mapped[list | None] = mapped_column(JSON, nullable=True)
     # Taste derived from the wardrobe (persona.derive), with the fingerprint it was computed for.
     persona: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 

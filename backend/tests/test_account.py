@@ -63,7 +63,16 @@ def account(monkeypatch):
 
 def test_profile_starts_with_email_only(account):
     client, *_ = account
-    assert client.get("/me").json() == {"email": "walid@example.com", "username": None, "avatar": False, "wear": None}
+    assert client.get("/me").json() == {"email": "walid@example.com", "username": None, "avatar": False, "wear": None, "styles": None}
+
+
+def test_styles_picked_at_first_sign_in_are_saved_once_each(account):
+    client, u, *_ = account
+    u.wear, u.styles = None, None  # never asked: the app shows the style picker
+    r = client.patch("/me", json={"styles": ["Streetwear", "Minimal", "Streetwear"]})
+    assert r.status_code == 200 and r.json()["styles"] == ["Streetwear", "Minimal"]
+    assert client.patch("/me", json={"styles": []}).json()["styles"] == []  # skipped: not asked again
+    assert client.patch("/me", json={"styles": ["Gothic"]}).status_code == 422
 
 
 def test_username_is_trimmed_and_validated(account):

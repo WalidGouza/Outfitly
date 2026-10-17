@@ -19,6 +19,12 @@ class Session:
     def commit(self):
         pass
 
+    def rollback(self):
+        pass
+
+    def scalar(self, stmt):
+        return None  # no earlier suggestion matches the uploaded piece
+
 
 @pytest.fixture
 def upload(monkeypatch):

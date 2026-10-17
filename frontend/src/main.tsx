@@ -29,6 +29,7 @@ import {
   type TodayState,
 } from "./screens";
 import { NextBuys, buysSignature, useNextBuys } from "./nextbuys";
+import { StylePicker } from "./onboarding";
 
 // ── Routing: #/, #/today, #/wardrobes, #/wardrobe, #/studio, #/lab, #/saved, #/next, #/account, #/piece/<id> ──────
 function parse(hash: string): Route {
@@ -316,6 +317,32 @@ function App() {
   }, [route.name, buysKey, buysSeen]);
   const buysUnseen = !buysKey || (!KEEP_OOTD_UNSEEN_FOR_TESTING && buysKey === buysSeen) ? null : buysSeen === null ? "feature" : "ideas";
 
+  // "What's your style?": asked once after the first sign-in (styles null = never answered), so the
+  // persona has something before any clothes. Closing it just asks again next visit; Skip doesn't.
+  const [picker, setPicker] = useState<"first" | "edit" | null>(null);
+  useEffect(() => {
+    if (!store.demo && me && me.styles === null) setPicker((p) => p ?? "first");
+  }, [me, store.demo]);
+  // The first style picked is where the studio starts, until the user chooses there.
+  useEffect(() => {
+    const first = me?.styles?.[0];
+    if (first) setStudioState((s) => (s.looks === null && s.style === "Everyday" ? { ...s, style: first } : s));
+  }, [me?.styles]);
+  const saveStyles = async (picked: string[]) => {
+    const wasFirst = picker === "first";
+    setMe(await store.call<Me>("/me", "PATCH", { styles: picked }));
+    setPicker(null);
+    setToastData(
+      wasFirst
+        ? { kind: "Saved", text: "Now add your first piece", action: { label: "Add a piece", run: openAdd } }
+        : { kind: "Saved", text: "Styles updated" },
+    );
+  };
+  const skipStyles = () => {
+    setPicker(null);
+    store.call<Me>("/me", "PATCH", { styles: [] }).then(setMe).catch(() => {});
+  };
+
   // Outfit lab picks live here so they survive a visit to a piece's page; a new wardrobe starts empty.
   const [lab, setLab] = useState<LabState>(emptyLab);
   useEffect(() => setLab(emptyLab), [store.wid]);
@@ -375,6 +402,7 @@ function App() {
         setMe={setMe}
         avatarUrl={avatarUrl}
         bumpAvatar={() => setAvatarVersion((v) => v + 1)}
+        editStyles={() => setPicker("edit")}
         theme={theme}
         setTheme={setTheme}
         toast={setToastData}
@@ -480,6 +508,15 @@ function App() {
 
       <Toast toast={toastData} onClose={closeToast} />
       <AddPiece app={app} open={dialog === "add"} onClose={close} prefill={addPrefill} />
+      <StylePicker
+        open={!!picker && !!me}
+        first={picker === "first"}
+        initial={me?.styles ?? []}
+        wear={me?.wear ?? "both"}
+        onSave={saveStyles}
+        onSkip={skipStyles}
+        onClose={() => setPicker(null)}
+      />
       <NewWardrobeDialog app={app} open={dialog === "wardrobe"} onClose={close} />
       <AuthDialog
         open={dialog === "auth"}

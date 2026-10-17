@@ -166,3 +166,15 @@ def test_reasons_name_the_garments_in_plain_english():
     reasons = {b["spec"]["garment"]: b["reason"] for b in improve.best_for_outfit(found(), lambda spec: 0.5, RULES)}
     assert reasons["sneakers"] == "Sneakers suit streetwear better than heels, and go well with your hoodie."
     assert reasons["cropped jacket"] == "A cropped jacket suits streetwear, and goes well with your hoodie."
+
+
+def test_styles_picked_at_sign_in_lead_the_persona_until_the_wardrobe_speaks():
+    empty = persona.derive([], [], "both", chosen=["Minimal", "Evening"])
+    assert {s["name"] for s in empty["styles"]} == {"Minimal", "Evening"} and empty["chosen"] == ["Minimal", "Evening"]
+    assert empty["summary"].startswith("You like minimal and evening.")
+    assert persona.top_styles(empty) == ["Minimal", "Evening"]
+    # With a streetwear wardrobe the picks are still there, but the wardrobe leads.
+    wardrobe = [piece(f"p{i}", "tops", "#191919", "cotton", "Streetwear", "hoodie") for i in range(9)]
+    grown = persona.derive(wardrobe, [], "both", chosen=["Minimal"])
+    assert grown["styles"][0]["name"] == "Streetwear"
+    assert 0 < persona.style_share(grown, "Minimal") < 0.5

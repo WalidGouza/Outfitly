@@ -217,7 +217,9 @@ def test_persona_suggestions_and_feedback_events(client):
     assert client.post("/me/suggestion-events", headers=alice, json={"events": [event]}).status_code == 200
     again = client.post(f"/wardrobes/{wid}/improve", headers=alice, json={"cloth_ids": ids, "style": "Streetwear"}).json()
     assert best["key"] not in [s["key"] for s in again["suggestions"]]
-    assert client.get("/me/persona", headers=alice).json()["feedback"]["dismissed"] == 1
+    learned = client.get("/me/persona", headers=alice).json()
+    assert learned["feedback"]["dismissed"] == 1
+    assert learned["learned"]["signals"] == 1 and learned["learned"]["dislikes"] == []  # one reaction: not a taste yet
 
     assert client.delete("/me/suggestion-events", headers=alice).json()["removed"] == 1
     assert client.get("/me/persona", headers=alice).json()["feedback"]["dismissed"] == 0

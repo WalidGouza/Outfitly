@@ -11,11 +11,22 @@ export type Persona = {
   summary: string;
   based_on: { pieces: number; outfits: number };
   feedback: { saved: number; dismissed: number; owned: number };
+  /** What reactions to suggestions taught: traits worth more, or less, when ranking suggestions. */
+  learned?: { likes: Learned[]; dislikes: Learned[]; signals: number };
   /** Read from the style tags alone, while photo analysis is unavailable. */
   estimated: boolean;
 };
 
-export type Me = { email: string; username: string | null; avatar: boolean; wear: "women" | "men" | "both" | null };
+type Learned = { trait: string; value: string; weight: number };
+
+export type Me = {
+  email: string;
+  username: string | null;
+  avatar: boolean;
+  wear: "women" | "men" | "both" | null;
+  /** Styles picked at first sign-in or here; null = never asked, [] = skipped. */
+  styles: string[] | null;
+};
 
 /** The name shown for an account: its username, or the start of its email until one is set. */
 export const displayName = (me: Me) => me.username || me.email.split("@")[0];
@@ -65,6 +76,7 @@ type Props = {
   setMe: (me: Me) => void;
   avatarUrl: string;
   bumpAvatar: () => void;
+  editStyles: () => void;
   theme: Theme;
   setTheme: (t: Theme) => void;
   toast: (t: ToastData) => void;
@@ -72,7 +84,7 @@ type Props = {
   signOut: () => void;
 };
 
-export function AccountPage({ store, me, setMe, avatarUrl, bumpAvatar, theme, setTheme, toast, signIn, signOut }: Props) {
+export function AccountPage({ store, me, setMe, avatarUrl, bumpAvatar, editStyles, theme, setTheme, toast, signIn, signOut }: Props) {
   const appearance = (
     <section className="account__section">
       <h2 className="account__label">Appearance</h2>
@@ -115,7 +127,7 @@ export function AccountPage({ store, me, setMe, avatarUrl, bumpAvatar, theme, se
       </div>
     );
 
-  return <SignedIn {...{ store, me, setMe, avatarUrl, bumpAvatar, toast, signOut, appearance }} />;
+  return <SignedIn {...{ store, me, setMe, avatarUrl, bumpAvatar, editStyles, toast, signOut, appearance }} />;
 }
 
 function SignedIn({
@@ -124,10 +136,11 @@ function SignedIn({
   setMe,
   avatarUrl,
   bumpAvatar,
+  editStyles,
   toast,
   signOut,
   appearance,
-}: Pick<Props, "store" | "setMe" | "avatarUrl" | "bumpAvatar" | "toast" | "signOut"> & { me: Me; appearance: React.ReactNode }) {
+}: Pick<Props, "store" | "setMe" | "avatarUrl" | "bumpAvatar" | "editStyles" | "toast" | "signOut"> & { me: Me; appearance: React.ReactNode }) {
   const [editingName, setEditingName] = useState(false);
   const [name, setName] = useState(me.username ?? "");
   const [editingPassword, setEditingPassword] = useState(false);
@@ -284,6 +297,23 @@ function SignedIn({
             />
           </div>
           <div className="row account__row">
+            <span className="account__key">Styles</span>
+            <span className="account__value persona__chips">
+              {me.styles?.length ? (
+                me.styles.map((s) => (
+                  <span key={s} className="chip chip--sm">
+                    {s}
+                  </span>
+                ))
+              ) : (
+                <span className="muted">Not chosen</span>
+              )}
+            </span>
+            <button className="btn btn--plain btn--sm account__edit" onClick={editStyles}>
+              {me.styles?.length ? "Edit" : "Choose"}
+            </button>
+          </div>
+          <div className="row account__row">
             <span className="account__key">Email</span>
             <span className="account__value">{me.email}</span>
           </div>
@@ -352,6 +382,9 @@ function SignedIn({
 }
 
 const pct = (share: number) => `${Math.round(share * 100)}%`;
+const CATEGORY_WORD: Record<string, string> = { pants: "bottoms", jackets: "layers" };
+/** "sneakers", "white", "streetwear", "leather", "bottoms": how a learned trait reads in a chip. */
+const traitWord = (l: Learned) => (l.trait === "category" ? (CATEGORY_WORD[l.value] ?? l.value) : l.value.toLowerCase());
 const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? "" : "s"}`;
 
 /** The persona: what Outfitly has read about the user's taste, used to rank suggestions. */
@@ -385,7 +418,7 @@ function StyleProfile({ store, toast }: Pick<Props, "store" | "toast">) {
     }
   }
 
-  const feedback = persona ? persona.feedback.saved + persona.feedback.dismissed + persona.feedback.owned : 0;
+  const reactions = persona ? Math.max(persona.learned?.signals ?? 0, persona.feedback.saved + persona.feedback.dismissed + persona.feedback.owned) : 0;
   return (
     <section className="account__section" aria-labelledby="persona-l">
       <h2 className="account__label" id="persona-l">
@@ -454,20 +487,49 @@ function StyleProfile({ store, toast }: Pick<Props, "store" | "toast">) {
                 </span>
               </div>
             )}
+            {(persona.learned?.likes.length || persona.learned?.dislikes.length) ? (
+              <div className="row account__row account__row--top">
+                <span className="account__key">Learned</span>
+                <span className="persona__learned">
+                  {persona.learned.likes.length > 0 && (
+                    <span className="persona__chips" aria-label="More of">
+                      <span className="t-cap muted persona__lead">More of</span>
+                      {persona.learned.likes.map((l) => (
+                        <span key={`${l.trait}-${l.value}`} className="chip chip--sm persona__like">
+                          {traitWord(l)}
+                        </span>
+                      ))}
+                    </span>
+                  )}
+                  {persona.learned.dislikes.length > 0 && (
+                    <span className="persona__chips" aria-label="Less of">
+                      <span className="t-cap muted persona__lead">Less of</span>
+                      {persona.learned.dislikes.map((l) => (
+                        <span key={`${l.trait}-${l.value}`} className="chip chip--sm persona__dislike">
+                          {traitWord(l)}
+                        </span>
+                      ))}
+                    </span>
+                  )}
+                </span>
+              </div>
+            ) : null}
             <div className="row account__row">
               <span className="account__value">
-                {persona.feedback.dismissed
-                  ? `You’ve hidden ${plural(persona.feedback.dismissed, "suggestion")}`
+                {reactions
+                  ? `Learned from ${plural(reactions, "reaction")}${persona.feedback.dismissed ? `, ${plural(persona.feedback.dismissed, "suggestion")} hidden` : ""}`
                   : "No feedback on suggestions yet"}
               </span>
-              <button className="btn btn--plain btn--sm account__edit" onClick={reset} disabled={busy || !feedback}>
+              <button className="btn btn--plain btn--sm account__edit" onClick={reset} disabled={busy || !reactions}>
                 Reset
               </button>
             </div>
           </>
         )}
       </div>
-      <p className="t-foot muted account__hint">Outfitly uses this to choose which pieces to suggest. It updates as your wardrobe changes.</p>
+      <p className="t-foot muted account__hint">
+        Outfitly uses this to choose which pieces to suggest. It updates as your wardrobe changes and learns from what you save, hide and add. Reset forgets what it learned.
+      </p>
     </section>
   );
 }
