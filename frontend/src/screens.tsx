@@ -60,8 +60,8 @@ export type App = {
   todayUnseen: boolean;
   /** Next buys: the wardrobe-wide suggestions and saved list (useNextBuys). */
   nextBuys: NextBuysState;
-  /** What's new on Next buys that the user hasn't seen: the feature itself, or new ideas. */
-  buysUnseen: "feature" | "ideas" | null;
+  /** Next buys hasn't been opened yet by this user: Home announces it, once. */
+  buysUnseen: boolean;
   studio: StudioState;
   setStudio: (patch: Partial<StudioState>) => void;
   runStudio: (patch?: Partial<StudioState>) => void;
@@ -223,7 +223,7 @@ export function Home({ app }: { app: App }) {
             <Icon name="chevron" />
           </span>
         </button>
-        <BuysTile app={app} entrance={entrance} />
+        <BuysTile app={app} />
         <Tile icon="wardrobe" title="Wardrobe" text={`${plural(store.pieces.length, "piece")}, every colour named.`} onClick={() => go({ name: "wardrobe" })} />
         <Tile icon="studio" title="Outfit studio" text="Pick a style and colour direction." onClick={() => go({ name: "studio" })} />
         <Tile icon="saved" title="Saved" text={`${plural(store.saved.length, "look")} kept for later.`} onClick={() => go({ name: "saved" })} />
@@ -254,16 +254,16 @@ export function Home({ app }: { app: App }) {
   );
 }
 
-/** Next buys on Home: the same feature card as the outfit of the day, with the same "something
- *  new" animation (sage card, ring of light, glass sweep, pieces re-entering) until it's opened,
- *  first to introduce the page, then whenever its top ideas change. */
-function BuysTile({ app, entrance }: { app: App; entrance: boolean }) {
+/** Next buys on Home: the same feature card as the outfit of the day. The "new" animation (sage
+ *  card, ring of light, glass sweep, pieces re-entering, entrance) plays only until the user first
+ *  opens Next buys; after that it's a calm card. */
+function BuysTile({ app }: { app: App }) {
   const top = (app.nextBuys.result?.suggestions ?? []).slice(0, 3);
   const best = top[0];
   const unseen = app.buysUnseen;
   return (
     <button
-      className={`tile tile--ink tile--feature tile--buys${top.length ? " tile--liquid" : ""}${unseen ? " tile--new" : ""}${entrance ? " tile--enter" : ""}`}
+      className={`tile tile--ink tile--feature tile--buys${top.length ? " tile--liquid" : ""}${unseen ? " tile--new tile--enter" : ""}`}
       onClick={() => app.go({ name: "next" })}
     >
       {top.length > 0 && (
@@ -273,7 +273,7 @@ function BuysTile({ app, entrance }: { app: App; entrance: boolean }) {
           ))}
         </span>
       )}
-      {(entrance || unseen) && <span className="ootd-sweep" aria-hidden="true" />}
+      {unseen && <span className="ootd-sweep" aria-hidden="true" />}
       <span className="tile-feature__text">
         <span className="tile-feature__top">
           <span className={`tile__icon${top.length ? " glass" : ""}`}>
@@ -282,14 +282,14 @@ function BuysTile({ app, entrance }: { app: App; entrance: boolean }) {
           {unseen && (
             <span className="new-badge">
               <span className="new-badge__dot" aria-hidden="true" />
-              <span className="new-badge__text">{unseen === "feature" ? "New feature" : "New ideas"}</span>
+              <span className="new-badge__text">New feature</span>
             </span>
           )}
         </span>
         <span className="t-title">Next buys</span>
         <p>
           {best
-            ? unseen === "feature"
+            ? unseen
               ? `The pieces that would do most for your wardrobe, starting with the ${best.title.toLowerCase()}${best.outfits > 1 ? `: it would improve ${best.outfits} of your outfits.` : "."}`
               : `${best.title}${best.outfits > 1 ? ` would improve ${best.outfits} of your outfits.` : " would lift your outfits."}`
             : app.nextBuys.result

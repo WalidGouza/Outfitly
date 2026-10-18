@@ -28,7 +28,7 @@ import {
   type StudioState,
   type TodayState,
 } from "./screens";
-import { NextBuys, buysSignature, useNextBuys } from "./nextbuys";
+import { NextBuys, useNextBuys } from "./nextbuys";
 import { StylePicker } from "./onboarding";
 
 // ── Routing: #/, #/today, #/wardrobes, #/wardrobe, #/studio, #/lab, #/saved, #/next, #/account, #/piece/<id> ──────
@@ -51,8 +51,8 @@ const nav: { route: Route["name"]; label: string; short: string; icon: IconName;
 ];
 const tabs = nav.filter((n) => n.tab);
 const SEEN_KEY = "outfitly-ootd-seen";
-// What Next buys showed first when last opened; absent until the page has been opened once.
-const BUYS_SEEN_KEY = "outfitly-buys-seen";
+// The sample wardrobe has no account to remember it on: Next buys was introduced in this browser.
+const DEMO_BUYS_SEEN_KEY = "outfitly-buys-seen";
 const emptyToday: TodayState = { looks: [], index: 0, busy: false, error: "", weather: null, advice: [], missing: [], geo: "idle" };
 
 const dayOfYear = () => {
@@ -295,27 +295,33 @@ function App() {
     }
   }, [route.name, todayKey, seenKey]);
 
-  // Next buys: loaded for the app so Home can announce it. New until the page is opened: first the
-  // feature itself, then whenever its top ideas change. Kept unseen in dev, like the outfit of the day.
+  // Next buys: loaded for the app so Home can announce it. Announced once per user: the card
+  // animates until Next buys is first opened, then never again (remembered on the account; in this
+  // browser for the sample wardrobe). Only once there are ideas to show.
   const nextBuys = useNextBuys(store, store.demo ? "both" : (me?.wear ?? "both"));
-  const buysKey = buysSignature(store.wid, nextBuys.result);
-  const [buysSeen, setBuysSeen] = useState(() => {
+  const [demoBuysSeen, setDemoBuysSeen] = useState(() => {
     try {
-      return localStorage.getItem(BUYS_SEEN_KEY);
+      return localStorage.getItem(DEMO_BUYS_SEEN_KEY) === "1";
     } catch {
-      return null;
+      return false;
     }
   });
+  const buysSeen = store.demo ? demoBuysSeen : !me || !!me.seen?.includes("next-buys");
   useEffect(() => {
-    if (KEEP_OOTD_UNSEEN_FOR_TESTING || route.name !== "next" || !buysKey || buysKey === buysSeen) return;
-    setBuysSeen(buysKey);
-    try {
-      localStorage.setItem(BUYS_SEEN_KEY, buysKey);
-    } catch {
-      // Private windows can refuse storage; it still counts as seen for this visit.
+    if (route.name !== "next" || buysSeen) return;
+    if (store.demo) {
+      setDemoBuysSeen(true);
+      try {
+        localStorage.setItem(DEMO_BUYS_SEEN_KEY, "1");
+      } catch {
+        // Private windows can refuse storage; it still counts as seen for this visit.
+      }
+    } else {
+      setMe((m) => (m ? { ...m, seen: [...(m.seen ?? []), "next-buys"] } : m));
+      store.call<Me>("/me", "PATCH", { seen: ["next-buys"] }).then(setMe).catch(() => {});
     }
-  }, [route.name, buysKey, buysSeen]);
-  const buysUnseen = !buysKey || (!KEEP_OOTD_UNSEEN_FOR_TESTING && buysKey === buysSeen) ? null : buysSeen === null ? "feature" : "ideas";
+  }, [route.name, buysSeen, store.demo]); // eslint-disable-line react-hooks/exhaustive-deps
+  const buysUnseen = !buysSeen && !!nextBuys.result?.suggestions.length;
 
   // "What's your style?": asked once after the first sign-in (styles null = never answered), so the
   // persona has something before any clothes. Closing it just asks again next visit; Skip doesn't.

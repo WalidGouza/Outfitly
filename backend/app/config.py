@@ -40,6 +40,10 @@ class Settings(BaseSettings):
     business_rules_json: str
     # Outfit of the day: forecast source and weather rules (empty = built-in defaults, see weather.py).
     weather_api_url: str = "https://api.open-meteo.com/v1/forecast"
+    # Open-Meteo's paid plan only (then WEATHER_API_URL=https://customer-api.open-meteo.com/v1/forecast).
+    weather_api_key: SecretStr = SecretStr("")
+    # Used when Open-Meteo can't answer (rate limits on shared hosting IPs); empty disables it.
+    weather_fallback_url: str = "https://api.met.no/weatherapi/locationforecast/2.0/complete"
     weather_rules_json: str = ""
     # Reverse geocoding for the place name shown with the forecast (OpenStreetMap Nominatim).
     geocoder_url: str = "https://nominatim.openstreetmap.org/reverse"

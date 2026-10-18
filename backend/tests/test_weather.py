@@ -147,3 +147,62 @@ def test_weather_outage_is_503(monkeypatch):
     monkeypatch.setattr(weather, "fetch_forecast", down)
     r = TestClient(main.app).post("/today/sample", json={"latitude": 1, "longitude": 1, "pieces": []})
     assert r.status_code == 503
+
+
+def met_answer():
+    from datetime import datetime, timedelta, timezone
+    start = datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0)
+    series = []
+    for h in range(30):
+        series.append({
+            "time": (start + timedelta(hours=h)).isoformat().replace("+00:00", "Z"),
+            "data": {
+                "instant": {"details": {"air_temperature": 8 + (h % 12) * 0.5, "apparent_air_temperature": 6 + (h % 12) * 0.5, "wind_speed": 5}},
+                "next_1_hours": {"summary": {"symbol_code": "lightrain" if h in (3, 4, 5) else "cloudy"}, "details": {"precipitation_amount": 0.5 if h in (3, 4, 5) else 0}},
+            },
+        })
+    return {"properties": {"timeseries": series}}
+
+
+def test_met_norway_answers_when_open_meteo_is_rate_limited(monkeypatch):
+    monkeypatch.setattr(weather, "_open_meteo_paused_until", 0.0)
+    calls = []
+
+    def handler(request):
+        calls.append(request.url.host)
+        assert "Outfitly" in request.headers["user-agent"]  # MET Norway requires an identifying agent
+        if request.url.host == "api.open-meteo.com":
+            return httpx.Response(429, json={"reason": "Daily API request limit exceeded"})
+        return httpx.Response(200, json=met_answer())
+
+    transport = httpx.MockTransport(handler)
+    w = weather.fetch_forecast(51.51, -0.13, transport=transport)
+    assert calls == ["api.open-meteo.com", "api.met.no"]
+    assert (w["temp_min"], w["temp_max"]) == (8, 14) and w["wind"] == 18  # 5 m/s
+    assert w["code"] == 61 and w["summary"] == "Rain" and w["precipitation"] == 1.5
+    assert w["rain_chance"] == 60  # no published probability: 3 wet hours
+    # Rate limited: the next places skip Open-Meteo for a while instead of waiting on a refusal.
+    weather.fetch_forecast(48.85, 2.35, transport=transport)
+    assert calls[2:] == ["api.met.no"]
+
+
+def test_when_no_provider_answers_users_get_a_plain_message_and_developers_the_causes(monkeypatch):
+    monkeypatch.setattr(weather, "_open_meteo_paused_until", 0.0)
+    down = httpx.MockTransport(lambda request: httpx.Response(503))
+    try:
+        weather.fetch_forecast(40.42, -3.7, transport=down)
+    except weather.WeatherUnavailable as exc:
+        assert str(exc) == "Open-Meteo returned HTTP 503; MET Norway returned HTTP 503"
+    else:
+        raise AssertionError("expected WeatherUnavailable")
+
+    def broken(*a, **k):
+        raise weather.WeatherUnavailable("Open-Meteo returned HTTP 429; MET Norway unreachable (ConnectTimeout)")
+
+    monkeypatch.setattr(main.weather, "fetch_forecast", broken)
+    place = {"latitude": 1, "longitude": 2, "style": "Everyday", "pieces": []}
+    client = TestClient(main.app)
+    for mode, expected in (("dev", "Weather unavailable: Open-Meteo returned HTTP 429"), ("prod", "Weather is unavailable right now. Try again shortly.")):
+        monkeypatch.setattr(main.s, "app_env", mode)
+        detail = client.post("/today/sample", json=place).json()["detail"]
+        assert detail.startswith(expected), detail

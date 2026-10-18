@@ -80,10 +80,6 @@ export function useNextBuys(store: Store, wear: Wear) {
 }
 export type NextBuysState = ReturnType<typeof useNextBuys>;
 
-/** Identifies what Next buys currently shows first: when it changes, Home says there's something new. */
-export const buysSignature = (wid: string | null, result: NextBuysResult | null) =>
-  wid && result?.suggestions.length ? `${wid}|${result.suggestions.slice(0, 3).map((s) => s.key).join(",")}` : "";
-
 export function NextBuys({ app }: { app: App }) {
   const { store } = app;
   const { demo, wid, call } = store;

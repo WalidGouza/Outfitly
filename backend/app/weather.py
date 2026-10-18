@@ -1,6 +1,8 @@
 """Weather-aware outfit of the day.
 
-1. `fetch_forecast` gets today's forecast for a location from Open-Meteo (no API key).
+1. `fetch_forecast` gets today's forecast for a location from Open-Meteo (no API key), or from
+   MET Norway when Open-Meteo can't answer. Open-Meteo's free tier limits requests per IP, and
+   hosts like Render share outgoing IPs between many apps, so the limit can be used up by others.
 2. `plan` runs the forecast through a list of rules ("feels below 10 °C => heavy coat
    required"). Rules are data: the defaults below, or WEATHER_RULES_JSON in the env.
 3. `tags` reads what a piece is good for (warm, waterproof, breathable...) from its name,
@@ -8,13 +10,21 @@
 4. `missing` lists the essentials today calls for that the wardrobe doesn't have.
 """
 import json
+import logging
 import re
 import time
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 from functools import lru_cache
 import httpx
 
+logger = logging.getLogger(__name__)
+
 OPEN_METEO = "https://api.open-meteo.com/v1/forecast"
+# Free, worldwide, no key; asks for an identifying User-Agent (USER_AGENT).
+MET_NORWAY = "https://api.met.no/weatherapi/locationforecast/2.0/complete"
+# After Open-Meteo says "too many requests", MET Norway answers alone for a while.
+RATE_LIMIT_PAUSE = 600  # seconds
+_open_meteo_paused_until = 0.0
 NOMINATIM = "https://nominatim.openstreetmap.org/reverse"
 # Nominatim's usage policy asks for an identifying User-Agent and cached, low-volume use.
 USER_AGENT = "Outfitly/1.0 (outfit of the day weather)"
@@ -81,13 +91,46 @@ def load_rules(raw: str = ""):
     return rules
 
 
-def fetch_forecast(latitude: float, longitude: float, transport=None, url: str = OPEN_METEO):
+def fetch_forecast(latitude: float, longitude: float, transport=None, url: str = OPEN_METEO,
+                   fallback_url: str = MET_NORWAY, api_key: str = ""):
+    """Today's forecast: Open-Meteo first, MET Norway if it fails. Raises WeatherUnavailable with
+    both causes when neither answers (shown to developers; users get a plain message)."""
+    global _open_meteo_paused_until
     # ~1 km precision is plenty for weather and keeps the exact position off the wire.
-    return _fetch(round(latitude, 2), round(longitude, 2), date.today().isoformat(), transport, url)
+    lat, lon, day = round(latitude, 2), round(longitude, 2), date.today().isoformat()
+    causes = []
+    if time.monotonic() >= _open_meteo_paused_until:
+        try:
+            return _fetch(lat, lon, day, transport, url, api_key)
+        except WeatherUnavailable as exc:
+            causes.append(str(exc))
+            if getattr(exc, "rate_limited", False):
+                _open_meteo_paused_until = time.monotonic() + RATE_LIMIT_PAUSE
+            logger.warning("Open-Meteo failed (%s); trying MET Norway", exc)
+    else:
+        causes.append("Open-Meteo paused after a rate limit")
+    if fallback_url:
+        try:
+            return _fetch_met(lat, lon, day, transport, fallback_url)
+        except WeatherUnavailable as exc:
+            causes.append(str(exc))
+    logger.error("No weather provider answered: %s", "; ".join(causes))
+    raise WeatherUnavailable("; ".join(causes))
+
+
+def _failure(provider, exc):
+    """WeatherUnavailable naming the provider and what went wrong (HTTP status, timeout...)."""
+    if isinstance(exc, httpx.HTTPStatusError):
+        error = WeatherUnavailable(f"{provider} returned HTTP {exc.response.status_code}")
+        error.rate_limited = exc.response.status_code == 429
+        return error
+    if isinstance(exc, httpx.HTTPError):
+        return WeatherUnavailable(f"{provider} unreachable ({exc.__class__.__name__})")
+    return WeatherUnavailable(f"{provider} sent an unexpected answer ({exc.__class__.__name__})")
 
 
 @lru_cache(maxsize=256)
-def _fetch(latitude, longitude, day, transport, url):
+def _fetch(latitude, longitude, day, transport, url, api_key=""):
     params = {
         "latitude": latitude,
         "longitude": longitude,
@@ -96,9 +139,11 @@ def _fetch(latitude, longitude, day, transport, url):
         "current": "temperature_2m,apparent_temperature,weather_code",
         "timezone": "auto",
         "forecast_days": 1,
+        # Open-Meteo's paid plan (customer-api.open-meteo.com): set WEATHER_API_KEY.
+        **({"apikey": api_key} if api_key else {}),
     }
     try:
-        with httpx.Client(transport=transport, timeout=8) as client:
+        with httpx.Client(transport=transport, timeout=8, headers={"User-Agent": USER_AGENT}) as client:
             response = client.get(url, params=params)
         response.raise_for_status()
         data = response.json()
@@ -118,8 +163,65 @@ def _fetch(latitude, longitude, day, transport, url):
             "summary": describe(int(d.get("weather_code") or 0)),
             "timezone": data.get("timezone", ""),
         }
-    except (httpx.HTTPError, KeyError, TypeError, ValueError, IndexError):
-        raise WeatherUnavailable("Weather is unavailable right now. Try again shortly.") from None
+    except (httpx.HTTPError, KeyError, TypeError, ValueError, IndexError) as exc:
+        raise _failure("Open-Meteo", exc) from None
+
+
+# MET Norway symbols, mapped to the WMO codes Open-Meteo uses (and `describe` reads).
+MET_SYMBOLS = {
+    "clearsky": 0, "fair": 1, "partlycloudy": 2, "cloudy": 3, "fog": 45,
+    "lightrain": 61, "rain": 63, "heavyrain": 65, "lightrainshowers": 80, "rainshowers": 81, "heavyrainshowers": 82,
+    "lightsleet": 66, "sleet": 67, "heavysleet": 67, "lightsleetshowers": 66, "sleetshowers": 67, "heavysleetshowers": 67,
+    "lightsnow": 71, "snow": 73, "heavysnow": 75, "lightsnowshowers": 85, "snowshowers": 85, "heavysnowshowers": 86,
+}
+# The day's code is its worst hour, as Open-Meteo's daily code is.
+SEVERITY = {0: 0, 1: 1, 2: 2, 3: 3, 45: 4, 61: 5, 80: 5, 63: 6, 81: 6, 65: 7, 82: 7, 66: 7, 67: 8, 71: 8, 85: 8, 73: 9, 86: 9, 75: 10, 95: 11}
+
+
+def met_code(symbol):
+    base = symbol.split("_")[0]  # "rainshowers_day" -> "rainshowers"
+    return 95 if "thunder" in base else MET_SYMBOLS.get(base, 3)
+
+
+@lru_cache(maxsize=256)
+def _fetch_met(latitude, longitude, day, transport, url):
+    """The same forecast fields from MET Norway, over the next 24 hours (it has no calendar days)."""
+    try:
+        with httpx.Client(transport=transport, timeout=8, headers={"User-Agent": USER_AGENT}) as client:
+            response = client.get(url, params={"lat": latitude, "lon": longitude})
+        response.raise_for_status()
+        series = response.json()["properties"]["timeseries"]
+        now = datetime.now(timezone.utc)
+        window = [
+            t for t in series
+            if now - timedelta(hours=1) <= datetime.fromisoformat(t["time"].replace("Z", "+00:00")) < now + timedelta(hours=24)
+        ] or series[:24]
+        instants = [t["data"]["instant"]["details"] for t in window]
+        hours = [t["data"]["next_1_hours"] for t in window if "next_1_hours" in t["data"]]
+        temps = [float(d["air_temperature"]) for d in instants]
+        feels = [float(d.get("apparent_air_temperature", d["air_temperature"])) for d in instants]
+        chances = [h["details"].get("probability_of_precipitation") for h in hours]
+        chances = [c for c in chances if c is not None]
+        if not chances:
+            # MET Norway publishes probabilities for the Nordics only; elsewhere, estimate from how
+            # many of the next 24 hours bring measurable rain (each wet hour ~20%, up to 95%).
+            wet = sum(1 for h in hours if float(h["details"].get("precipitation_amount") or 0) >= 0.1)
+            chances = [min(95, 20 * wet)]
+        code = max((met_code(h["summary"]["symbol_code"]) for h in hours), key=lambda c: SEVERITY.get(c, 3), default=3)
+        return {
+            "temp_max": round(max(temps)),
+            "temp_min": round(min(temps)),
+            "temp_now": round(temps[0]),
+            "feels_like": round((2 * max(feels) + min(feels)) / 3),
+            "rain_chance": int(max(chances)),
+            "precipitation": round(sum(float(h["details"].get("precipitation_amount") or 0) for h in hours), 1),
+            "wind": round(max(float(d.get("wind_speed") or 0) for d in instants) * 3.6),  # m/s -> km/h
+            "code": code,
+            "summary": describe(code),
+            "timezone": "",
+        }
+    except (httpx.HTTPError, KeyError, TypeError, ValueError, IndexError) as exc:
+        raise _failure("MET Norway", exc) from None
 
 
 def place_name(latitude: float, longitude: float, timezone: str = "", transport=None, url: str = NOMINATIM):

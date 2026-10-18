@@ -67,6 +67,7 @@ async def lifespan(app):
         conn.execute(text("ALTER TABLE public.users ADD COLUMN IF NOT EXISTS wear VARCHAR"))
         conn.execute(text("ALTER TABLE public.users ADD COLUMN IF NOT EXISTS persona JSON"))
         conn.execute(text("ALTER TABLE public.users ADD COLUMN IF NOT EXISTS styles JSON"))
+        conn.execute(text("ALTER TABLE public.users ADD COLUMN IF NOT EXISTS seen JSON"))
     with engine.begin() as conn:
         # Supabase's Data API roles; absent on plain PostgreSQL (CI, local Docker).
         api_roles = conn.scalars(
@@ -250,7 +251,7 @@ def login(body: Credentials, session=Depends(db)):
 def me_json(u):
     return {
         "email": u.email, "username": u.username, "avatar": bool(u.avatar), "wear": getattr(u, "wear", None),
-        "styles": getattr(u, "styles", None),
+        "styles": getattr(u, "styles", None), "seen": getattr(u, "seen", None) or [],
     }
 
 
@@ -260,6 +261,8 @@ class Profile(BaseModel):
     wear: Literal["women", "men", "both"] | None = None
     # The styles they like, from first sign-in or the profile; [] when they skipped.
     styles: list[Literal["Everyday", "Minimal", "Smart casual", "Streetwear", "Evening"]] | None = Field(None, max_length=5)
+    # Features just introduced; added to the ones already seen (never removed).
+    seen: list[Literal["next-buys"]] | None = Field(None, max_length=10)
 
 
 class PasswordChange(BaseModel):
@@ -283,7 +286,7 @@ def me(u=Depends(user)):
 
 @app.patch("/me")
 def update_me(body: Profile, u=Depends(user), session=Depends(db)):
-    if body.username is None and body.wear is None and body.styles is None:
+    if body.username is None and body.wear is None and body.styles is None and body.seen is None:
         raise HTTPException(422, "Nothing to update")
     if body.username is not None:
         name = " ".join(body.username.split())
@@ -294,6 +297,8 @@ def update_me(body: Profile, u=Depends(user), session=Depends(db)):
         u.wear = body.wear
     if body.styles is not None:
         u.styles = list(dict.fromkeys(body.styles))  # in the order picked, once each
+    if body.seen:
+        u.seen = list(dict.fromkeys([*(getattr(u, "seen", None) or []), *body.seen]))
     session.commit()
     return me_json(u)
 
@@ -768,9 +773,13 @@ class SamplePlace(Place):
 
 def forecast_for(place):
     try:
-        w = weather.fetch_forecast(place.latitude, place.longitude, url=s.weather_api_url)
+        w = weather.fetch_forecast(
+            place.latitude, place.longitude, url=s.weather_api_url, fallback_url=s.weather_fallback_url,
+            api_key=s.weather_api_key.get_secret_value(),
+        )
     except weather.WeatherUnavailable as exc:
-        raise HTTPException(503, str(exc)) from None
+        # The providers and their errors for developers; a plain message for users.
+        raise HTTPException(503, f"Weather unavailable: {exc}" if s.is_dev else "Weather is unavailable right now. Try again shortly.") from None
     return {
         **w,
         # The exact (rounded to ~1 km) point the forecast is for, shown next to the place name.

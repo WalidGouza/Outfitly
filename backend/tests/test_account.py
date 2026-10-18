@@ -63,7 +63,7 @@ def account(monkeypatch):
 
 def test_profile_starts_with_email_only(account):
     client, *_ = account
-    assert client.get("/me").json() == {"email": "walid@example.com", "username": None, "avatar": False, "wear": None, "styles": None}
+    assert client.get("/me").json() == {"email": "walid@example.com", "username": None, "avatar": False, "wear": None, "styles": None, "seen": []}
 
 
 def test_styles_picked_at_first_sign_in_are_saved_once_each(account):
@@ -73,6 +73,15 @@ def test_styles_picked_at_first_sign_in_are_saved_once_each(account):
     assert r.status_code == 200 and r.json()["styles"] == ["Streetwear", "Minimal"]
     assert client.patch("/me", json={"styles": []}).json()["styles"] == []  # skipped: not asked again
     assert client.patch("/me", json={"styles": ["Gothic"]}).status_code == 422
+
+
+def test_a_new_feature_is_announced_once_per_account(account):
+    client, u, *_ = account
+    u.seen = None
+    assert client.get("/me").json()["seen"] == []
+    assert client.patch("/me", json={"seen": ["next-buys"]}).json()["seen"] == ["next-buys"]
+    assert client.patch("/me", json={"seen": ["next-buys"]}).json()["seen"] == ["next-buys"]  # once
+    assert client.patch("/me", json={"seen": ["anything"]}).status_code == 422
 
 
 def test_username_is_trimmed_and_validated(account):

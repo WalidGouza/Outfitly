@@ -26,6 +26,9 @@ class User(Base):
     # Styles the user picked when they first signed in: the persona's starting point before the
     # wardrobe says more. Null = never asked (the app asks), [] = skipped.
     styles: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    # New features the user has already been shown ("next-buys"), so each is announced once per
+    # account, whatever the device.
+    seen: Mapped[list | None] = mapped_column(JSON, nullable=True)
     # Taste derived from the wardrobe (persona.derive), with the fingerprint it was computed for.
     persona: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 

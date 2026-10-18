@@ -26,6 +26,8 @@ export type Me = {
   wear: "women" | "men" | "both" | null;
   /** Styles picked at first sign-in or here; null = never asked, [] = skipped. */
   styles: string[] | null;
+  /** New features already introduced to this account ("next-buys"). */
+  seen?: string[];
 };
 
 /** The name shown for an account: its username, or the start of its email until one is set. */
