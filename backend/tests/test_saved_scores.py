@@ -30,6 +30,10 @@ class Session:
             return self.pieces.get(ident)
 
     def scalars(self, query):
+        # Answers by table, like a real session: pieces by id, otherwise the outfits.
+        if query.column_descriptions[0]["entity"] is Cloth:
+            ids = next((v for v in query.compile().params.values() if isinstance(v, (list, tuple, set))), [])
+            return iter([self.pieces[i] for i in ids if i in self.pieces])
         return iter(self.outfits)
 
     def commit(self):

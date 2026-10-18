@@ -3,6 +3,7 @@ from datetime import datetime, timedelta, timezone
 from io import BytesIO
 from pathlib import Path
 from typing import Literal
+from uuid import uuid4
 import warnings
 import logging
 import math
@@ -10,19 +11,19 @@ from types import SimpleNamespace
 import jwt
 from PIL import Image, ImageOps, UnidentifiedImageError
 from pwdlib import PasswordHash
-from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Form
+from fastapi import FastAPI, Depends, HTTPException, Request, UploadFile, File, Form
 from fastapi.security import HTTPBearer
 from fastapi.responses import Response, JSONResponse
 from fastapi.exceptions import RequestValidationError
 from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select, text
+from sqlalchemy import delete, func, select, text
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from .config import settings
 from .database import make_engine
-from .models import Base, User, Wardrobe, Cloth, Outfit, Suggestion, SuggestionEvent
+from .models import Base, User, Wardrobe, Cloth, Outfit, RevokedToken, Suggestion, SuggestionEvent
 from .embeddings import EmbeddingClient, EmbeddingUnavailable
 from .text_cache import TextEmbeddingStore
 from . import improve, learning, meaning
@@ -30,13 +31,21 @@ from . import persona as taste
 from .matching import SHAPES, is_outfit, rank, score_combo
 from . import attributes
 from .storage import ImageStorage, StorageUnavailable
+from .limits import BodySizeLimit, client_ip, limiter
 from .run import api_options
 from . import weather
 
 Image.MAX_IMAGE_PIXELS = 16_000_000
+# The photo formats the app accepts. Pillow can read many more (TIFF, PSD, ICO...); each one is
+# more parsing code an attacker could aim at, so the rest are refused. Phone JPEGs holding
+# several pictures (MPO) are opened by the JPEG reader, so they're covered.
+PHOTO_FORMATS = ["JPEG", "PNG", "WEBP"]
 s = settings()
 engine = make_engine(s.database_url)
 passwords = PasswordHash.recommended()
+# Checked against when the email is unknown, so a wrong email takes as long as a wrong password
+# and response times don't reveal which emails have an account.
+UNKNOWN_USER_HASH = passwords.hash("no account has this password")
 bearer = HTTPBearer()
 uploads = Path(s.upload_dir).resolve()
 image_storage = ImageStorage(s)
@@ -68,6 +77,7 @@ async def lifespan(app):
         conn.execute(text("ALTER TABLE public.users ADD COLUMN IF NOT EXISTS persona JSON"))
         conn.execute(text("ALTER TABLE public.users ADD COLUMN IF NOT EXISTS styles JSON"))
         conn.execute(text("ALTER TABLE public.users ADD COLUMN IF NOT EXISTS seen JSON"))
+        conn.execute(text("ALTER TABLE public.users ADD COLUMN IF NOT EXISTS session_version INTEGER"))
     with engine.begin() as conn:
         # Supabase's Data API roles; absent on plain PostgreSQL (CI, local Docker).
         api_roles = conn.scalars(
@@ -86,6 +96,9 @@ async def lifespan(app):
 
 
 app = FastAPI(title="Outfitly API", lifespan=lifespan, **api_options(s))
+# Added first, so it runs inside CORS: a refused upload still carries CORS headers and the
+# browser can show its message.
+app.add_middleware(BodySizeLimit)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=s.cors_origins,
@@ -102,6 +115,10 @@ FRIENDLY = {
     "database": "Something went wrong on our side. Please try again in a moment.",
     "unexpected": "Something went wrong on our side. Please try again in a moment.",
 }
+# Text typed by users: no control characters (PostgreSQL can't store NUL, and the others only
+# hide things in a name).
+PLAIN_TEXT = r"^[^\x00-\x1f\x7f]+$"
+
 # Validation errors by field: what to tell a user who typed something we can't accept.
 FIELD_MESSAGES = {
     "email": "Enter a valid email address.",
@@ -109,7 +126,7 @@ FIELD_MESSAGES = {
     "current_password": "Enter your current password.",
     "new_password": "Your new password must be 10 to 128 characters.",
     "username": "Usernames are 2 to 30 letters, numbers, spaces, dots, dashes or underscores.",
-    "name": "Names can be 1 to 80 characters.",
+    "name": "Names can be 1 to 80 characters, without special characters like line breaks.",
     "color": "Choose a colour from the list.",
     "image": "Choose a photo to upload.",
     "latitude": "We couldn’t read your location. Please try again.",
@@ -151,7 +168,13 @@ async def database_error(request, exc):
 async def validation_error(request, exc):
     if s.is_dev:
         # FastAPI's own field-by-field list, which the dev frontend formats as "field: problem".
-        return await request_validation_exception_handler(request, exc)
+        # It quotes the bad input back; NaN or Infinity can't be written as JSON, so those are
+        # quoted as text.
+        errors = [
+            {**e, "input": str(e["input"])} if isinstance(e.get("input"), float) and not math.isfinite(e["input"]) else e
+            for e in exc.errors()
+        ]
+        return await request_validation_exception_handler(request, RequestValidationError(errors, body=exc.body))
     fields = [str(e.get("loc", ["", ""])[-1]) for e in exc.errors()]
     message = next((FIELD_MESSAGES[f] for f in fields if f in FIELD_MESSAGES), None)
     if message is None and any(f in {"category", "texture", "style", "garment", "harmony", "wear"} for f in fields):
@@ -181,11 +204,23 @@ def db():
         yield session
 
 
+def read_token(credentials):
+    """The claims of a sign-in token we issued: our secret, HS256, and an expiry and user that
+    must be there (a token without "exp" would otherwise never expire)."""
+    return jwt.decode(credentials, s.jwt_secret, algorithms=["HS256"], options={"require": ["exp", "sub"]})
+
+
 def user(auth=Depends(bearer), session=Depends(db)):
     try:
-        data = jwt.decode(auth.credentials, s.jwt_secret, algorithms=["HS256"])
+        data = read_token(auth.credentials)
         found = session.get(User, data["sub"])
-        if found:
+        # A token from before the last password change (or "sign out of all devices") no longer
+        # signs anyone in, nor one that was signed out.
+        if (
+            found
+            and data.get("v", 0) == (getattr(found, "session_version", None) or 0)
+            and not (data.get("jti") and session.get(RevokedToken, data["jti"]))
+        ):
             return found
     except (jwt.PyJWTError, KeyError):
         pass
@@ -208,25 +243,45 @@ def cloth_json(c):
 
 class Credentials(BaseModel):
     email: str = Field(
-        min_length=3, max_length=254, pattern=r"^[^\s@]+@[^\s@]+\.[^\s@]+$"
+        min_length=3, max_length=254, pattern=r"^[^\s@\x00-\x1f\x7f]+@[^\s@\x00-\x1f\x7f]+\.[^\s@\x00-\x1f\x7f]+$"
     )
     password: str = Field(min_length=10, max_length=128)
     # Asked at sign-up; only used on registration and optional.
     wear: Literal["women", "men", "both"] | None = None
+    # "Remember me": a 30-day sign-in instead of 12 hours (the browser keeps it across restarts).
+    remember: bool = False
 
 
-def token(u):
+SESSION_HOURS = 12
+REMEMBER_DAYS = 30
+
+
+def token(u, remember=False):
+    lifetime = timedelta(days=REMEMBER_DAYS) if remember else timedelta(hours=SESSION_HOURS)
     return {
         "token": jwt.encode(
-            {"sub": u.id, "exp": datetime.now(timezone.utc) + timedelta(hours=12)},
+            {
+                "sub": u.id,
+                "exp": datetime.now(timezone.utc) + lifetime,
+                # Identifies this token, so signing out can cancel it on the server.
+                "jti": uuid4().hex,
+                # Which sign-in generation this is (password changes start a new one), and whether
+                # to remember it, so a renewed token keeps the same lifetime.
+                "v": getattr(u, "session_version", None) or 0,
+                "r": remember,
+            },
             s.jwt_secret,
             algorithm="HS256",
-        )
+        ),
+        "remember": remember,
     }
 
 
 @app.post("/auth/register")
-def register(body: Credentials, session=Depends(db)):
+def register(body: Credentials, request: Request, session=Depends(db)):
+    ip = client_ip(request, s.trusted_proxy_hops)
+    limiter.take("auth", ip)
+    limiter.take("register", ip)
     u = User(
         email=body.email.strip().lower(), password_hash=passwords.hash(body.password), wear=body.wear
     )
@@ -236,15 +291,48 @@ def register(body: Credentials, session=Depends(db)):
     except IntegrityError:
         session.rollback()
         raise HTTPException(409, "Email already registered")
-    return token(u)
+    return token(u, body.remember)
 
 
 @app.post("/auth/login")
-def login(body: Credentials, session=Depends(db)):
-    u = session.scalar(select(User).where(User.email == body.email.strip().lower()))
-    if not u or not passwords.verify(body.password, u.password_hash):
+def login(body: Credentials, request: Request, session=Depends(db)):
+    ip = client_ip(request, s.trusted_proxy_hops)
+    email = body.email.strip().lower()
+    # Refused before the password is hashed, so floods cost nothing.
+    limiter.take("auth", ip)
+    limiter.check("login-fail", (email, ip))
+    limiter.check("email-fail", email)
+    u = session.scalar(select(User).where(User.email == email))
+    if not passwords.verify(body.password, u.password_hash if u else UNKNOWN_USER_HASH) or not u:
+        limiter.hit("login-fail", (email, ip))
+        limiter.hit("email-fail", email)
         raise HTTPException(401, "Email or password incorrect")
-    return token(u)
+    limiter.clear("login-fail", (email, ip))
+    return token(u, body.remember)
+
+
+@app.post("/auth/logout")
+def logout(auth=Depends(bearer), session=Depends(db)):
+    """Cancels this sign-in on the server, so a copied token stops working too."""
+    try:
+        data = read_token(auth.credentials)
+    except jwt.PyJWTError:
+        return {"ok": True}  # expired or invalid: already unusable
+    jti = data.get("jti")
+    if jti and not session.get(RevokedToken, jti):
+        session.add(RevokedToken(jti=jti, user_id=str(data.get("sub", "")), expires_at=datetime.fromtimestamp(data["exp"], timezone.utc)))
+        # Tokens past their expiry need no entry any more.
+        session.execute(delete(RevokedToken).where(RevokedToken.expires_at < datetime.now(timezone.utc)))
+        session.commit()
+    return {"ok": True}
+
+
+@app.post("/me/sign-out-everywhere")
+def sign_out_everywhere(u=Depends(user), session=Depends(db)):
+    """Every device, this one included, has to sign in again."""
+    u.session_version = (getattr(u, "session_version", None) or 0) + 1
+    session.commit()
+    return {"ok": True}
 
 
 # ── Account: profile, password, photo, deletion ─────────────────────────────
@@ -275,7 +363,11 @@ class Confirm(BaseModel):
 
 
 def check_password(u, password):
+    """The current password, for changing it or deleting the account: a stolen session alone
+    can't guess it, because wrong answers are limited per account."""
+    limiter.check("password-fail", u.id)
     if not passwords.verify(password, u.password_hash):
+        limiter.hit("password-fail", u.id)
         raise HTTPException(403, "Current password is incorrect")
 
 
@@ -304,17 +396,22 @@ def update_me(body: Profile, u=Depends(user), session=Depends(db)):
 
 
 @app.post("/me/password")
-def change_password(body: PasswordChange, u=Depends(user), session=Depends(db)):
+def change_password(body: PasswordChange, auth=Depends(bearer), u=Depends(user), session=Depends(db)):
+    """Changes the password and signs out every other device: their tokens carry the old
+    session_version. This device gets a new token, with the same "remember me" choice."""
     check_password(u, body.current_password)
     if body.new_password == body.current_password:
         raise HTTPException(422, "Choose a password different from the current one")
+    remember = bool(read_token(auth.credentials).get("r"))
     u.password_hash = passwords.hash(body.new_password)
+    u.session_version = (getattr(u, "session_version", None) or 0) + 1
     session.commit()
-    return {"ok": True}
+    return {"ok": True, **token(u, remember)}
 
 
 @app.put("/me/avatar")
 def set_avatar(image: UploadFile = File(), u=Depends(user), session=Depends(db)):
+    limiter.take("avatar", u.id)
     im, _ = load_image(image)
     # Square, centred crop, small enough for a profile picture.
     square = ImageOps.fit(im, (512, 512), method=Image.Resampling.LANCZOS)
@@ -377,6 +474,8 @@ def delete_account(body: Confirm, u=Depends(user), session=Depends(db)):
             session.delete(row)
     for row in session.scalars(select(SuggestionEvent).where(SuggestionEvent.user_id == u.id)):
         session.delete(row)
+    for row in session.scalars(select(RevokedToken).where(RevokedToken.user_id == u.id)):
+        session.delete(row)
     # The models have no relationships, so the ORM doesn't know rows depend on each other and may
     # delete a user before its wardrobes. Flushing level by level keeps the foreign keys satisfied.
     session.flush()
@@ -395,7 +494,7 @@ def delete_account(body: Confirm, u=Depends(user), session=Depends(db)):
 
 
 class Name(BaseModel):
-    name: str = Field(min_length=1, max_length=80)
+    name: str = Field(min_length=1, max_length=80, pattern=PLAIN_TEXT)
 
 
 @app.get("/wardrobes")
@@ -431,7 +530,7 @@ def load_image(image: UploadFile):
     try:
         with warnings.catch_warnings():
             warnings.simplefilter("error", Image.DecompressionBombWarning)
-            im = Image.open(BytesIO(raw))
+            im = Image.open(BytesIO(raw), formats=PHOTO_FORMATS)
             im.load()
             im = ImageOps.exif_transpose(im).convert("RGB")
             im.thumbnail((1600, 1600))
@@ -451,6 +550,8 @@ def load_image(image: UploadFile):
 def analyze(wid: str, image: UploadFile = File(), u=Depends(user), session=Depends(db)):
     """Suggested form values for a photo. Nothing is stored."""
     owned(wid, u, session)
+    # Each photo analysed costs ML credits: a daily allowance per account, shared with uploads.
+    limiter.take("photos", u.id)
     im, jpeg = load_image(image)
     try:
         return attributes.suggest(im, jpeg, embeddings, getattr(u, "wear", None))
@@ -464,7 +565,7 @@ def analyze(wid: str, image: UploadFile = File(), u=Depends(user), session=Depen
 @app.post("/wardrobes/{wid}/clothes")
 def upload(
     wid: str,
-    name: str = Form(min_length=1, max_length=80),
+    name: str = Form(min_length=1, max_length=80, pattern=PLAIN_TEXT),
     category: Literal["tops", "pants", "shoes", "jackets", "dresses"] = Form(),
     texture: Literal[
         "cotton", "denim", "knit", "leather", "linen", "silk", "other"
@@ -479,6 +580,7 @@ def upload(
     session=Depends(db),
 ):
     owned(wid, u, session)
+    limiter.take("photos", u.id)
     garment = garment.strip().lower() or None
     if garment and garment not in attributes.GARMENTS[category]:
         raise HTTPException(422, f"Choose a type of {category} from the list")
@@ -637,9 +739,17 @@ def generate(wid: str, body: Generate, u=Depends(user), session=Depends(db)):
     ]
 
 
+# An outfit is 2 to 4 pieces: a dress and shoes, or a top, bottoms and shoes, each with an
+# optional layer. Which combinations are valid is checked by outfit_pieces (matching.is_outfit).
+OutfitIds = Field(min_length=2, max_length=4)
+
+
+Style = Literal["Everyday", "Minimal", "Smart casual", "Streetwear", "Evening"]
+
+
 class Save(Name):
-    style: str = Field(max_length=40)
-    cloth_ids: list[str] = Field(min_length=3, max_length=4)
+    style: Style
+    cloth_ids: list[str] = OutfitIds
 
 
 def outfit_pieces(wid, cloth_ids, session):
@@ -675,8 +785,14 @@ def saved(wid: str, u=Depends(user), session=Depends(db)):
     owned(wid, u, session)
     looks = []
     backfilled = False
-    for o in session.scalars(select(Outfit).where(Outfit.wardrobe_id == wid)):
-        items = [session.get(Cloth, cid) for cid in o.cloth_ids]
+    outfits = list(session.scalars(select(Outfit).where(Outfit.wardrobe_id == wid)))
+    # Every outfit's pieces in one query, not one per piece.
+    wanted = {cid for o in outfits for cid in o.cloth_ids}
+    pieces = {
+        c.id: c for c in session.scalars(select(Cloth).where(Cloth.wardrobe_id == wid, Cloth.id.in_(wanted)))
+    } if wanted else {}
+    for o in outfits:
+        items = [pieces.get(cid) for cid in o.cloth_ids]
         # Skip outfits left incomplete by data from before piece removal existed.
         if not all(items):
             continue
@@ -719,7 +835,6 @@ def style_vectors():
 
 
 # ── Outfit of the day, from the weather ─────────────────────────────────────
-Style = Literal["Everyday", "Minimal", "Smart casual", "Streetwear", "Evening"]
 WEIGHT_OF_WEATHER = 0.35
 
 
@@ -727,7 +842,7 @@ STYLES = ["Everyday", "Minimal", "Smart casual", "Streetwear", "Evening"]
 
 
 class Rate(BaseModel):
-    cloth_ids: list[str] = Field(min_length=3, max_length=4)
+    cloth_ids: list[str] = OutfitIds
     # "Auto" scores the outfit in every style and reports the one it fits best.
     style: Literal["Auto", "Everyday", "Minimal", "Smart casual", "Streetwear", "Evening"] = "Auto"
 
@@ -752,8 +867,9 @@ def rate(wid: str, body: Rate, u=Depends(user), session=Depends(db)):
 
 
 class Place(BaseModel):
-    latitude: float = Field(ge=-90, le=90)
-    longitude: float = Field(ge=-180, le=180)
+    # NaN and Infinity aren't places (JSON parsers accept them; the weather code would crash).
+    latitude: float = Field(ge=-90, le=90, allow_inf_nan=False)
+    longitude: float = Field(ge=-180, le=180, allow_inf_nan=False)
     style: Style = "Everyday"
 
 
@@ -830,6 +946,7 @@ def today_response(pieces, semantic, place, w, plan):
 @app.post("/wardrobes/{wid}/today")
 def today(wid: str, place: Place, u=Depends(user), session=Depends(db)):
     owned(wid, u, session)
+    limiter.take("weather", u.id)
     w = forecast_for(place)
     plan = weather.plan(w, s.weather_rules)
     pieces = list(session.scalars(select(Cloth).where(Cloth.wardrobe_id == wid)))
@@ -843,8 +960,10 @@ def today(wid: str, place: Place, u=Depends(user), session=Depends(db)):
 
 
 @app.post("/today/sample")
-def today_sample(place: SamplePlace):
-    """The same weather pick for the signed-out sample wardrobe (no photos, no embeddings)."""
+def today_sample(place: SamplePlace, request: Request):
+    """The same weather pick for the signed-out sample wardrobe (no photos, no embeddings).
+    Open to anyone, so limited per address: each call can reach the weather and place services."""
+    limiter.take("weather-public", client_ip(request, s.trusted_proxy_hops))
     w = forecast_for(place)
     plan = weather.plan(w, s.weather_rules)
     pieces = [
@@ -951,6 +1070,22 @@ def outfits_to_improve(pieces, saved_outfits, persona, vectors, rules, limit=24)
     return found
 
 
+def stored_suggestions(wid, session):
+    return list(session.scalars(
+        select(Suggestion)
+        .where(Suggestion.wardrobe_id == wid)
+        .order_by(Suggestion.rank)
+        .execution_options(populate_existing=True)  # as stored now, not as first loaded
+    ))
+
+
+def lock_wardrobe(wid, session):
+    """Holds a PostgreSQL lock for this wardrobe until the transaction ends (any instance, any
+    worker). Other databases (the SQLite tests) run one request at a time and skip it."""
+    if session.get_bind().dialect.name == "postgresql":
+        session.execute(text("SELECT pg_advisory_xact_lock(hashtext(:key))"), {"key": f"suggestions:{wid}"})
+
+
 def suggestion_context(w, u, session):
     """Everything both kinds of suggestions need, with the wardrobe-wide list kept up to date."""
     vectors = optional_style_vectors()
@@ -971,7 +1106,12 @@ def suggestion_context(w, u, session):
         improve.VERSION, meaning.SCORE_VERSION, persona["fingerprint"], sorted(piece_row(c) for c in pieces),
         sorted((o.id, o.style, list(o.cloth_ids)) for o in saved_outfits), sorted(exclude), rules,
     )
-    rows = list(session.scalars(select(Suggestion).where(Suggestion.wardrobe_id == w.id).order_by(Suggestion.rank)))
+    rows = stored_suggestions(w.id, session)
+    if not rows or any(r.fingerprint != fp for r in rows):
+        # Two requests may find the list out of date at once (Next buys loading while an outfit's
+        # details open). One recomputes while the other waits, then uses its result.
+        lock_wardrobe(w.id, session)
+        rows = stored_suggestions(w.id, session)
     if not rows or any(r.fingerprint != fp for r in rows):
         per_outfit = []
         for outfit, items in outfits_to_improve(pieces, saved_outfits, persona, vectors, rules):
@@ -980,8 +1120,8 @@ def suggestion_context(w, u, session):
                 items, outfit["style"], semantic, rules, fit_for(outfit["style"]), persona["wear"], exclude,
             )))
         ranked = improve.group(per_outfit, persona_fit, rules)
-        for r in rows:
-            session.delete(r)
+        # One statement for whatever rows exist now, so a row already gone can't fail it.
+        session.execute(delete(Suggestion).where(Suggestion.wardrobe_id == w.id))
         rows = [
             Suggestion(
                 wardrobe_id=w.id, fingerprint=fp, rank=-1, key=improve.REACH_KEY, value=0,
@@ -1057,7 +1197,7 @@ class EventSpec(BaseModel):
     color: str = Field(pattern=r"^#[0-9a-fA-F]{6}$")
     color_name: str = Field(min_length=1, max_length=30)
     texture: Literal["cotton", "denim", "knit", "leather", "linen", "silk", "other"]
-    style: str = Field(max_length=40)
+    style: Style
 
 
 class Event(BaseModel):

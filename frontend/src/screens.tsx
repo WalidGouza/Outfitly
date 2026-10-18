@@ -1419,8 +1419,10 @@ export function AddPiece({ app, open, onClose, prefill }: { app: App; open: bool
 }
 
 // ── Account and wardrobe dialogs ────────────────────────────────────────────
-export function AuthDialog({ open, onClose, onSignedIn, call }: { open: boolean; onClose: () => void; onSignedIn: (token: string) => void; call: Store["call"] }) {
+export function AuthDialog({ open, onClose, onSignedIn, call }: { open: boolean; onClose: () => void; onSignedIn: (token: string, remember: boolean) => void; call: Store["call"] }) {
   const [register, setRegister] = useState(false);
+  // On by default: most people sign in on their own phone or laptop. Off on a shared computer.
+  const [remember, setRemember] = useState(true);
   const [wear, setWear] = useState<Wear | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -1437,8 +1439,9 @@ export function AuthDialog({ open, onClose, onSignedIn, call }: { open: boolean;
         email: String(f.get("email") ?? "").trim(),
         password: f.get("password"),
         ...(register && wear ? { wear } : {}),
+        remember,
       });
-      onSignedIn(result.token);
+      onSignedIn(result.token, remember);
       onClose();
     } catch (err) {
       setError((err as Error).message);
@@ -1478,6 +1481,17 @@ export function AuthDialog({ open, onClose, onSignedIn, call }: { open: boolean;
               <span className="t-cap muted">Sets which clothes and outfit ideas we suggest. You can change it in your profile.</span>
             </fieldset>
           )}
+          <div className="remember">
+            <span className="remember__text">
+              <span className="remember__label" id="remember-l">
+                Remember me
+              </span>
+              <span className="t-cap muted" id="remember-d">
+                {remember ? "Stay signed in on this device for 30 days." : "You’ll be signed out when you close the browser."}
+              </span>
+            </span>
+            <Switch checked={remember} onChange={setRemember} labelledBy="remember-l" />
+          </div>
           <ErrorNote text={error} />
         </div>
         <div className="dialog__foot" style={{ flexDirection: "column" }}>

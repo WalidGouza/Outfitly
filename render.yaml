@@ -6,7 +6,8 @@ services:
     runtime: python
     plan: free
     rootDir: backend
-    buildCommand: pip install -r requirements.txt
+    # constraints.txt pins every package to the versions CI tested.
+    buildCommand: pip install -r requirements.txt -c constraints.txt
     startCommand: python -m app.run
     healthCheckPath: /health
     # Deploy only after the GitHub Actions checks on main pass (.github/workflows/ci-cd.yml).

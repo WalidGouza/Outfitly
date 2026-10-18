@@ -8,7 +8,7 @@ import { OutfitDetails } from "./outfit";
 import { KEEP_OOTD_UNSEEN_FOR_TESTING } from "./testing";
 import { Logo, LogoSymbol } from "./brand";
 import { resolvedTheme, validTheme, type Theme } from "./theme";
-import { styles, TOKEN_KEY, useWardrobeStore, type Coords, type Look, type Piece } from "./store";
+import { clearToken, readToken, replaceToken, revokeToken, saveToken, styles, useWardrobeStore, type Coords, type Look, type Piece } from "./store";
 import { Collar, Dialog, DialogHead, Dots, Icon, Seg, Toast, tick, type IconName, type ToastData } from "./ui";
 import {
   AddPiece,
@@ -100,9 +100,10 @@ function useTheme() {
 
 function App() {
   const { theme, setTheme, dark } = useTheme();
-  const [token, setToken] = useState(() => sessionStorage.getItem(TOKEN_KEY) || "");
+  const [token, setToken] = useState(readToken);
   const signOut = useCallback(() => {
-    sessionStorage.removeItem(TOKEN_KEY);
+    revokeToken(readToken());
+    clearToken();
     setToken("");
   }, []);
   const store = useWardrobeStore(token, signOut);
@@ -409,6 +410,10 @@ function App() {
         avatarUrl={avatarUrl}
         bumpAvatar={() => setAvatarVersion((v) => v + 1)}
         editStyles={() => setPicker("edit")}
+        renewSession={(t) => {
+          replaceToken(t);
+          setToken(t);
+        }}
         theme={theme}
         setTheme={setTheme}
         toast={setToastData}
@@ -528,8 +533,8 @@ function App() {
         open={dialog === "auth"}
         onClose={close}
         call={store.call}
-        onSignedIn={(t) => {
-          sessionStorage.setItem(TOKEN_KEY, t);
+        onSignedIn={(t, remember) => {
+          saveToken(t, remember);
           setToken(t);
           go({ name: "home" });
         }}

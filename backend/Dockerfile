@@ -7,9 +7,9 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 
 # No PyTorch here: CLIP runs in the separate ml-service image.
-COPY requirements.txt ./requirements.txt
+COPY requirements.txt constraints.txt ./
 RUN python -m pip install --upgrade pip \
-    && python -m pip install -r requirements.txt \
+    && python -m pip install -r requirements.txt -c constraints.txt \
     && useradd --uid 10001 --create-home outfitly \
     && mkdir -p /app/uploads \
     && chown -R outfitly:outfitly /app/uploads

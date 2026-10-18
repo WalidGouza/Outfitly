@@ -15,6 +15,18 @@ os.environ["FRONTEND_ORIGIN"] = "http://localhost:5173"
 os.environ["FRONTEND_ORIGINS"] = ""
 
 
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def fresh_attempt_limits():
+    # Each test starts with no sign-in attempts counted.
+    from app.limits import limiter
+
+    limiter.reset()
+    yield
+
+
 def pytest_configure(config):
     # Unit tests never reach a database: keep text embeddings in memory only.
     from app import main

@@ -25,6 +25,7 @@ def piece(id, category, color="#808080", texture="cotton", style="Smart casual")
 PIECES = [
     piece("t", "tops", "#eee7d7"), piece("p", "pants", "#1f2a4a"),
     piece("s", "shoes", "#7a5235", "leather"), piece("t2", "tops"),
+    piece("d", "dresses", "#232323", "silk"), piece("j", "jackets", "#27324a", "other"),
 ]
 
 
@@ -36,6 +37,12 @@ class Session:
     def scalars(self, stmt):
         ids = next(v for v in stmt.compile().params.values() if isinstance(v, list))
         return iter([p for p in PIECES if p.id in ids])
+
+    def add(self, row):
+        self.saved = row
+
+    def commit(self):
+        pass
 
 
 @pytest.fixture
@@ -77,3 +84,19 @@ def test_without_the_ml_service_the_style_tags_still_rate(client, monkeypatch):
     monkeypatch.setattr(main.embeddings, "texts", down)
     body = client.post("/wardrobes/w/rate", json={"cloth_ids": ["t", "p", "s"]}).json()
     assert body["estimated"] and body["style"] == "Smart casual" and body["breakdown"]["semantic"] == 100
+
+
+def test_a_dress_and_shoes_is_a_whole_outfit_for_the_lab_and_saving(client):
+    # Two pieces: the smallest real outfit. It used to be refused for having fewer than 3.
+    for ids in (["d", "s"], ["d", "s", "j"]):
+        rated = client.post("/wardrobes/w/rate", json={"cloth_ids": ids})
+        assert rated.status_code == 200, rated.text
+        assert 0 <= rated.json()["score"] <= 100
+        saved = client.post("/wardrobes/w/outfits", json={"name": "Dinner", "style": "Evening", "cloth_ids": ids})
+        assert saved.status_code == 200, saved.text
+
+
+def test_what_still_isnt_an_outfit_is_refused(client):
+    assert client.post("/wardrobes/w/rate", json={"cloth_ids": ["d"]}).status_code == 422  # one piece
+    assert client.post("/wardrobes/w/rate", json={"cloth_ids": ["d", "t", "s"]}).status_code == 400  # dress and a top
+    assert client.post("/wardrobes/w/outfits", json={"name": "x", "style": "Evening", "cloth_ids": ["t", "s"]}).status_code == 400  # no bottoms

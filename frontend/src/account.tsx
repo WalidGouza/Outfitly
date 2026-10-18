@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { apiBase, TOKEN_KEY, type Store } from "./store";
+import { apiBase, readToken, type Store } from "./store";
 import type { Theme } from "./theme";
 import { Dialog, DialogHead, Icon, Seg, type ToastData } from "./ui";
 
@@ -48,7 +48,7 @@ export function useAvatarUrl(me: Me | null, version: number) {
     if (!me?.avatar) return;
     let active = true;
     let object = "";
-    fetch(`${apiBase()}/me/avatar`, { headers: { Authorization: `Bearer ${sessionStorage.getItem(TOKEN_KEY) ?? ""}` } })
+    fetch(`${apiBase()}/me/avatar`, { headers: { Authorization: `Bearer ${readToken()}` } })
       .then((r) => (r.ok ? r.blob() : Promise.reject()))
       .then((b) => {
         object = URL.createObjectURL(b);
@@ -79,6 +79,8 @@ type Props = {
   avatarUrl: string;
   bumpAvatar: () => void;
   editStyles: () => void;
+  /** A password change signs out other devices and hands this one a new token. */
+  renewSession: (token: string) => void;
   theme: Theme;
   setTheme: (t: Theme) => void;
   toast: (t: ToastData) => void;
@@ -86,7 +88,7 @@ type Props = {
   signOut: () => void;
 };
 
-export function AccountPage({ store, me, setMe, avatarUrl, bumpAvatar, editStyles, theme, setTheme, toast, signIn, signOut }: Props) {
+export function AccountPage({ store, me, setMe, avatarUrl, bumpAvatar, editStyles, renewSession, theme, setTheme, toast, signIn, signOut }: Props) {
   const appearance = (
     <section className="account__section">
       <h2 className="account__label">Appearance</h2>
@@ -129,7 +131,7 @@ export function AccountPage({ store, me, setMe, avatarUrl, bumpAvatar, editStyle
       </div>
     );
 
-  return <SignedIn {...{ store, me, setMe, avatarUrl, bumpAvatar, editStyles, toast, signOut, appearance }} />;
+  return <SignedIn {...{ store, me, setMe, avatarUrl, bumpAvatar, editStyles, renewSession, toast, signOut, appearance }} />;
 }
 
 function SignedIn({
@@ -139,10 +141,11 @@ function SignedIn({
   avatarUrl,
   bumpAvatar,
   editStyles,
+  renewSession,
   toast,
   signOut,
   appearance,
-}: Pick<Props, "store" | "setMe" | "avatarUrl" | "bumpAvatar" | "editStyles" | "toast" | "signOut"> & { me: Me; appearance: React.ReactNode }) {
+}: Pick<Props, "store" | "setMe" | "avatarUrl" | "bumpAvatar" | "editStyles" | "renewSession" | "toast" | "signOut"> & { me: Me; appearance: React.ReactNode }) {
   const [editingName, setEditingName] = useState(false);
   const [name, setName] = useState(me.username ?? "");
   const [editingPassword, setEditingPassword] = useState(false);
@@ -184,10 +187,17 @@ function SignedIn({
     setError("");
     try {
       if (nameChanged) setMe(await store.call<Me>("/me", "PATCH", { username: name.trim() }));
-      if (editingPassword) await store.call("/me/password", "POST", { current_password: current, new_password: next });
+      if (editingPassword) {
+        const r = await store.call<{ token: string }>("/me/password", "POST", { current_password: current, new_password: next });
+        renewSession(r.token);
+      }
       toast({
         kind: "Saved",
-        text: nameChanged && editingPassword ? "Profile and password updated" : editingPassword ? "Password updated" : "Profile updated",
+        text: nameChanged && editingPassword
+          ? "Profile and password updated"
+          : editingPassword
+            ? "Password updated. Other devices are signed out."
+            : "Profile updated",
       });
       setEditingName(false);
       setEditingPassword(false);
@@ -209,6 +219,19 @@ function SignedIn({
       toast({ kind: "Saved", text: wear === "both" ? "Showing women’s and men’s clothes" : wear === "women" ? "Showing women’s clothes" : "Showing men’s clothes" });
     } catch (e) {
       setError((e as Error).message);
+    }
+  }
+
+  async function signOutEverywhere() {
+    setBusy(true);
+    try {
+      await store.call("/me/sign-out-everywhere", "POST");
+      signOut();
+      toast({ kind: "Signed out", text: "You’re signed out on every device.", tone: "plain" });
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -371,6 +394,20 @@ function SignedIn({
           </div>
         </div>
         <p className="t-foot muted account__hint">Your account can’t be recovered after deletion.</p>
+      </section>
+
+      <section className="account__section">
+        <h2 className="account__label">Devices</h2>
+        <div className="group account__group">
+          <div className="row account__row">
+            <span className="account__value" style={{ whiteSpace: "normal" }}>
+              Signed in somewhere you don’t recognise, or on a device you lost?
+            </span>
+            <button className="btn btn--sm" onClick={signOutEverywhere} disabled={busy}>
+              Sign out of all devices
+            </button>
+          </div>
+        </div>
       </section>
 
       <button className="btn btn--block account__signout" onClick={signOut}>

@@ -101,6 +101,52 @@ export const apiBase = () => {
 };
 export const TOKEN_KEY = "atelier-token";
 
+// The sign-in token. "Remember me" keeps it in localStorage (survives closing the browser, valid
+// 30 days); otherwise sessionStorage, gone when the browser closes (valid 12 hours).
+export function readToken() {
+  try {
+    return localStorage.getItem(TOKEN_KEY) || sessionStorage.getItem(TOKEN_KEY) || "";
+  } catch {
+    return "";
+  }
+}
+export function clearToken() {
+  try {
+    localStorage.removeItem(TOKEN_KEY);
+    sessionStorage.removeItem(TOKEN_KEY);
+  } catch {
+    // Storage blocked: nothing was kept anyway.
+  }
+}
+export function saveToken(token: string, remember: boolean) {
+  clearToken();
+  try {
+    (remember ? localStorage : sessionStorage).setItem(TOKEN_KEY, token);
+  } catch {
+    // Storage blocked (private window): signed in for this page only.
+  }
+}
+/** Cancels this sign-in on the server too, so a copy of the token stops working. Best effort:
+ *  signing out on this device never waits for it or depends on it. */
+export function revokeToken(token: string) {
+  if (!token) return;
+  try {
+    fetch(`${apiBase()}/auth/logout`, { method: "POST", headers: { Authorization: `Bearer ${token}` }, keepalive: true }).catch(() => {});
+  } catch {
+    // A misconfigured API address: nothing to cancel there.
+  }
+}
+/** A renewed token (after a password change) goes where the old one was. */
+export function replaceToken(token: string) {
+  let remembered = false;
+  try {
+    remembered = !!localStorage.getItem(TOKEN_KEY);
+  } catch {
+    // Storage blocked: keep it for the session.
+  }
+  saveToken(token, remembered);
+}
+
 // Sample wardrobe for visitors who have not signed in (see useWardrobeCatalog's sampleWardrobes).
 const sample: Piece[] = (
   [

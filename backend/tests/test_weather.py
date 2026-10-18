@@ -81,6 +81,14 @@ def test_forecast_is_parsed_and_coordinates_are_rounded():
     assert w["feels_like"] == 4 and w["rain_chance"] == 85 and w["summary"] == "Rain"
 
 
+@pytest.fixture(autouse=True)
+def fresh_place_lookups(monkeypatch):
+    # Each test starts with nothing cached and the one-per-second pacing out of the way.
+    monkeypatch.setattr(weather, "_places", {})
+    monkeypatch.setattr(weather, "_progress", {})
+    monkeypatch.setattr(weather, "_lookup_slot", lambda: True)
+
+
 def test_place_name_reads_town_and_country():
     seen = {}
 
@@ -100,7 +108,6 @@ def test_place_name_never_breaks_the_forecast():
 
 
 def test_no_town_gives_the_closest_named_area(monkeypatch):
-    monkeypatch.setattr(weather.time, "sleep", lambda s: None)
     zooms = []
 
     def handler(request):
@@ -114,7 +121,6 @@ def test_no_town_gives_the_closest_named_area(monkeypatch):
 
 
 def test_open_sea_falls_back_to_the_time_zone(monkeypatch):
-    monkeypatch.setattr(weather.time, "sleep", lambda s: None)
     sea = httpx.MockTransport(lambda r: httpx.Response(200, json={"error": "Unable to geocode"}))
     assert weather.place_name(38.5, -28.0, "Atlantic/Azores", transport=sea) == "Near Azores"
     assert weather.place_name(45.0, -40.0, "Etc/GMT+3", transport=sea) is None
@@ -206,3 +212,25 @@ def test_when_no_provider_answers_users_get_a_plain_message_and_developers_the_c
         monkeypatch.setattr(main.s, "app_env", mode)
         detail = client.post("/today/sample", json=place).json()["detail"]
         assert detail.startswith(expected), detail
+
+
+def test_place_lookups_never_wait_inside_a_request(monkeypatch):
+    # One lookup per second for the whole server: when this second is taken, the forecast shows
+    # the time zone at once, and the next request carries on where the lookup stopped.
+    slots = iter([True, False, True])
+    monkeypatch.setattr(weather, "_lookup_slot", lambda: next(slots))
+    monkeypatch.setattr(weather.time, "sleep", lambda s: (_ for _ in ()).throw(AssertionError("slept in a request")))
+    zooms = []
+
+    def handler(request):
+        zooms.append(request.url.params["zoom"])
+        if request.url.params["zoom"] == "10":
+            return httpx.Response(200, json={"error": "Unable to geocode"})
+        return httpx.Response(200, json={"address": {"county": "Highland", "country": "United Kingdom"}})
+
+    remote = httpx.MockTransport(handler)
+    assert weather.place_name(57.12, -4.71, "Europe/London", transport=remote) == "Near London"  # stand-in
+    assert weather.place_name(57.12, -4.71, "Europe/London", transport=remote) == "Near Highland, United Kingdom"
+    assert zooms == ["10", "8"]  # zoom 10 wasn't asked twice
+    assert weather.place_name(57.12, -4.71, "Europe/London", transport=remote) == "Near Highland, United Kingdom"
+    assert zooms == ["10", "8"]  # kept for the day

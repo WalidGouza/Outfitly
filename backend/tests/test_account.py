@@ -94,10 +94,46 @@ def test_username_is_trimmed_and_validated(account):
 
 def test_password_change_needs_the_current_password(account):
     client, u, _, _ = account
-    assert client.post("/me/password", json={"current_password": "wrong", "new_password": "a-new-long-password"}).status_code == 403
-    assert client.post("/me/password", json={"current_password": "correct horse battery", "new_password": "short"}).status_code == 422
-    assert client.post("/me/password", json={"current_password": "correct horse battery", "new_password": "a-new-long-password"}).status_code == 200
+    signed_in = {"Authorization": "Bearer " + main.token(u)["token"]}
+    def change(current, new):
+        return client.post("/me/password", headers=signed_in, json={"current_password": current, "new_password": new})
+    assert change("wrong", "a-new-long-password").status_code == 403
+    assert change("correct horse battery", "short").status_code == 422
+    assert change("correct horse battery", "a-new-long-password").status_code == 200
     assert main.passwords.verify("a-new-long-password", u.password_hash)
+
+
+def test_remember_me_keeps_the_sign_in_for_30_days_instead_of_12_hours():
+    import jwt
+    from datetime import datetime, timezone
+    u = SimpleNamespace(id="u1", session_version=0)
+    def hours_left(t):
+        exp = jwt.decode(t["token"], main.s.jwt_secret, algorithms=["HS256"])["exp"]
+        return (exp - datetime.now(timezone.utc).timestamp()) / 3600
+    assert 11.9 < hours_left(main.token(u)) <= 12
+    remembered = main.token(u, remember=True)
+    assert remembered["remember"] is True and 30 * 24 - 0.1 < hours_left(remembered) <= 30 * 24
+
+
+def test_changing_the_password_signs_out_every_other_device(monkeypatch):
+    # Real token checks: no user override, so the session_version claim is what decides.
+    u = SimpleNamespace(id="u1", email="walid@example.com", username=None, avatar=None, session_version=0,
+                        password_hash=main.passwords.hash("correct horse battery"))
+    session = Session(u)
+    session.get = lambda model, ident: u if ident == "u1" else None
+    main.app.dependency_overrides[main.db] = lambda: session
+    try:
+        client = TestClient(main.app)
+        phone = {"Authorization": "Bearer " + main.token(u, remember=True)["token"]}
+        laptop = {"Authorization": "Bearer " + main.token(u, remember=True)["token"]}
+        assert client.get("/me", headers=phone).status_code == 200
+        r = client.post("/me/password", headers=laptop, json={"current_password": "correct horse battery", "new_password": "a-new-long-password"})
+        assert r.status_code == 200 and r.json()["remember"] is True  # same choice, renewed
+        assert client.get("/me", headers=phone).status_code == 401  # the other device is signed out
+        assert client.get("/me", headers=laptop).status_code == 401  # and so is the old token here...
+        assert client.get("/me", headers={"Authorization": "Bearer " + r.json()["token"]}).status_code == 200  # ...replaced by this one
+    finally:
+        main.app.dependency_overrides.clear()
 
 
 def test_photo_is_cropped_square_and_replaces_the_old_one(account):

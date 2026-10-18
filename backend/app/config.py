@@ -25,6 +25,9 @@ class Settings(BaseSettings):
     jwt_secret: str
     frontend_origin: str = "http://localhost:5173"
     frontend_origins: str = ""
+    # Proxies in front of the API that add the visitor's address to X-Forwarded-For (Render: 1).
+    # Used for attempt limits. Defaults: dev 0 (direct), prod 1.
+    trusted_proxy_hops: int | None = None
     upload_dir: str = "uploads"
     image_storage: Literal["local", "supabase"] | None = None
     supabase_url: str = ""
@@ -55,6 +58,10 @@ class Settings(BaseSettings):
     def environment_defaults(self):
         if self.image_storage is None:
             self.image_storage = "supabase" if self.app_env == "prod" else "local"
+        if self.trusted_proxy_hops is None:
+            self.trusted_proxy_hops = 0 if self.is_dev else 1
+        if not 0 <= self.trusted_proxy_hops <= 5:
+            raise ValueError("TRUSTED_PROXY_HOPS must be between 0 and 5")
         self.cors_origins
         self.ml_service_url = self.ml_service_url.strip().rstrip("/")
         if self.ml_service_url:

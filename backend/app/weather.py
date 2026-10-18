@@ -12,6 +12,7 @@
 import json
 import logging
 import re
+import threading
 import time
 from datetime import date, datetime, timedelta, timezone
 from functools import lru_cache
@@ -231,7 +232,10 @@ def place_name(latitude: float, longitude: float, timezone: str = "", transport=
     "Lyon, France" when there is a town; otherwise the closest larger named area ("Near Highland,
     United Kingdom"); at sea or when the lookup is down, the forecast's time zone ("Near Azores").
     """
-    name = _place(round(latitude, 2), round(longitude, 2), date.today().isoformat(), transport, url)
+    try:
+        name = _place(round(latitude, 2), round(longitude, 2), date.today().isoformat(), transport, url)
+    except LookupBusy:
+        name = None  # asked again on a later request; the time zone stands in meanwhile
     if name:
         return name
     # Generic zones far out at sea ("Etc/GMT+3") name no place, so they're not used.
@@ -243,29 +247,63 @@ TOWN_KEYS = ("city", "town", "village", "hamlet", "municipality", "suburb")
 AREA_KEYS = ("county", "state_district", "state", "region", "province", "archipelago", "island")
 
 
-@lru_cache(maxsize=256)
+ZOOMS = (10, 8, 5, 3)  # town level first, then wider areas until something has a name
+LOOKUP_INTERVAL = 1.0  # Nominatim's usage policy: at most one request per second
+_places = {}  # (latitude, longitude, day) -> name or None, for the day
+_progress = {}  # the same key -> zoom levels already tried without a name
+_lookup_lock = threading.Lock()
+_last_lookup = 0.0
+
+
+class LookupBusy(Exception):
+    """Another lookup used this second; never waited for inside a request."""
+
+
+def _lookup_slot():
+    global _last_lookup
+    with _lookup_lock:
+        now = time.monotonic()
+        if now - _last_lookup < LOOKUP_INTERVAL:
+            return False
+        _last_lookup = now
+        return True
+
+
 def _place(latitude, longitude, day, transport, url):
-    # Town level first, then wider areas until something has a name. Nominatim allows one request
-    # per second, so the fallbacks are spaced out (they only happen far from any town, then cached).
-    for attempt, zoom in enumerate((10, 8, 5, 3)):
-        if attempt:
-            time.sleep(1)
-        params = {"lat": latitude, "lon": longitude, "format": "jsonv2", "zoom": zoom, "accept-language": "en"}
+    """One Nominatim request per second for the whole server, and none waited for: when this
+    second is taken, LookupBusy, and the next request carries on from the zoom level reached.
+    Results are kept for the day (bounded), so each place is looked up at most once a day."""
+    key = (latitude, longitude, day, url)
+    if key in _places:
+        return _places[key]
+    for i in range(_progress.get(key, 0), len(ZOOMS)):
+        if not _lookup_slot():
+            _progress[key] = i
+            raise LookupBusy
+        params = {"lat": latitude, "lon": longitude, "format": "jsonv2", "zoom": ZOOMS[i], "accept-language": "en"}
         try:
             with httpx.Client(transport=transport, timeout=5, headers={"User-Agent": USER_AGENT}) as client:
                 response = client.get(url, params=params)
             response.raise_for_status()
             address = response.json().get("address") or {}
         except (httpx.HTTPError, ValueError, AttributeError):
-            return None
+            return _remember(key, None)
         town = next((address[k] for k in TOWN_KEYS if address.get(k)), None)
         area = next((address[k] for k in AREA_KEYS if address.get(k)), None)
         country = address.get("country")
         if town:
-            return ", ".join(dict.fromkeys(x for x in (town, country) if x))
+            return _remember(key, ", ".join(dict.fromkeys(x for x in (town, country) if x)))
         if area or country:
-            return "Near " + ", ".join(dict.fromkeys(x for x in (area, country) if x))
-    return None
+            return _remember(key, "Near " + ", ".join(dict.fromkeys(x for x in (area, country) if x)))
+    return _remember(key, None)
+
+
+def _remember(key, name):
+    if len(_places) >= 1024:
+        _places.pop(next(iter(_places)))
+    _places[key] = name
+    _progress.pop(key, None)
+    return name
 
 
 def _holds(when, w):

@@ -29,6 +29,9 @@ class User(Base):
     # New features the user has already been shown ("next-buys"), so each is announced once per
     # account, whatever the device.
     seen: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    # Sign-in tokens carry this number; bumping it (password change) signs out every device,
+    # including "remember me" ones. Null on accounts from before it existed = 0.
+    session_version: Mapped[int | None] = mapped_column(Integer, nullable=True, default=0)
     # Taste derived from the wardrobe (persona.derive), with the fingerprint it was computed for.
     persona: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
@@ -91,6 +94,15 @@ class TextEmbedding(Base):
 
 def now():
     return datetime.now(timezone.utc)
+
+
+class RevokedToken(Base):
+    """Sign-in tokens cancelled by signing out, until they would have expired anyway."""
+
+    __tablename__ = "revoked_tokens"
+    jti: Mapped[str] = mapped_column(String, primary_key=True)
+    user_id: Mapped[str] = mapped_column(String, index=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
 
 
 class Suggestion(Base):

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { colorName, ringDash, verdict } from "./colors";
-import { apiBase, categories, TOKEN_KEY, type Look, type Piece } from "./store";
+import { apiBase, categories, readToken, type Look, type Piece } from "./store";
 
 // ── Icons (24px grid, stroke 1.75 — see .ic in ow.css) ─────────────────────
 const paths = {
@@ -212,7 +212,7 @@ function shape(p: Piece) {
 // Photos are private: fetched with the session token, cached as object URLs for the visit.
 const photos = new Map<string, Promise<string>>();
 function photoUrl(image: string) {
-  const token = sessionStorage.getItem(TOKEN_KEY) ?? "";
+  const token = readToken();
   const key = `${token}:${image}`;
   let pending = photos.get(key);
   if (!pending) {

@@ -645,3 +645,8 @@ html[data-theme="dark"]:has(.app) { background: #0B0D0A; }
 @media (prefers-reduced-motion: reduce) {
   .ow .style-pick__card, .style-pick__check { transition: none; }
 }
+
+/* Sign in: "Remember me" */
+.remember { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 14px; border-radius: var(--r-sm); background: var(--fill); }
+.remember__text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.remember__label { font-weight: 600; }
