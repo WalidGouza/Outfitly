@@ -21,7 +21,7 @@ from . import learning, meaning
 from .attributes import COLOR_NAMES, color_name
 from .matching import color_score
 
-VERSION = 3
+VERSION = 5
 SAVED_OUTFIT_WEIGHT = 1.5  # a saved outfit says more about taste than one piece
 CHOSEN_WEIGHT = 3  # pieces' worth, shared between the styles picked at sign-in
 STYLE_WEIGHT, COLOUR_WEIGHT, FABRIC_WEIGHT = 0.55, 0.3, 0.15
@@ -75,7 +75,7 @@ def derive(pieces, outfits, wear, style_vectors=None, feedback=None, learned=Non
         "wear": wear or "both",
         "based_on": {"pieces": len(pieces), "outfits": len(outfits)},
         "chosen": picked,
-        "feedback": {k: (feedback or {}).get(k, 0) for k in ("saved", "dismissed", "owned")},
+        "feedback": {k: (feedback or {}).get(k, 0) for k in ("saved", "dismissed", "owned", "outfits_saved", "outfits_dismissed")},
         "learned": learned or learning.learn([]),
         "estimated": style_vectors is None,
         "updated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),

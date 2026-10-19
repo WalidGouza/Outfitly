@@ -59,8 +59,37 @@ export type NextBuy = {
   best_gain: number;
   reason: string;
   examples: BuyExample[];
+  /** Shown to learn the user's taste (app/explore.py), not because it improves an outfit. */
+  explore?: boolean;
 };
-export type NextBuysResult = { suggestions: NextBuy[]; considered: number; complete: boolean; estimated: boolean };
+/** A new piece in a suggested outfit, and the owned piece it takes the place of (none: a layer). */
+export type LookPiece = { key: string; spec: Spec; query: string; title: string; replaces: string | null };
+/** A whole outfit to suggest (app/improve.py looks): one of the user's outfits with its best swap
+ *  in ("improved"), or taken further with a second new piece ("new"). */
+export type SuggestedLook = {
+  key: string;
+  kind: "improved" | "new";
+  style: string;
+  source: BuyExample["source"];
+  name: string | null;
+  /** The owned pieces it keeps. */
+  cloth_ids: string[];
+  pieces: LookPiece[];
+  before: number;
+  after: number;
+  gain: number;
+  reason: string;
+};
+export type NextBuysResult = {
+  suggestions: NextBuy[];
+  /** Whole outfits to swipe on, mixed into the deck. */
+  looks?: SuggestedLook[];
+  /** Pieces to learn the user's taste from, mixed into the deck. */
+  explore?: NextBuy[];
+  considered: number;
+  complete: boolean;
+  estimated: boolean;
+};
 export type WishItem = { key: string; spec: Spec; query: string; title: string };
 
 // Colours people actually buy clothes in, with the swatch values of the named-colour table.
@@ -259,9 +288,9 @@ export async function fetchSuggestions(call: Call, wid: string, items: Item[], s
   return r.suggestions.map((s) => ({ ...s, replaces: items.find((i) => i.id === s.replaces) }));
 }
 
-export type SuggestionAction = "shown" | "saved" | "unsaved" | "dismissed" | "owned" | "clicked" | "bought";
+export type SuggestionAction = "look_saved" | "look_unsaved" | "look_dismissed" | "look_owned" | "shown" | "saved" | "unsaved" | "dismissed" | "owned" | "clicked" | "bought";
 export type SuggestionSource = "outfit" | "lab" | "next-buys";
-type Reported = { key: string; spec: Spec; gain?: number };
+type Reported = { key: string; spec: Spec; gain?: number; explore?: boolean; look?: string };
 const shownThisSession = new Set<string>();
 
 /** Records what the user did with suggestions: the history the persona learns from.
@@ -291,7 +320,147 @@ export function recordSuggestions(
       gain: s.gain ?? null,
       position: Math.min(position, 50),
       cloth_ids: ids,
+      explore: !!s.explore,
+      look: s.look ?? null,
     }));
   // The API takes up to 50 events at a time.
   for (let i = 0; i < events.length; i += 50) call("/me/suggestion-events", "POST", { events: events.slice(i, i + 50) }).catch(() => {});
+}
+
+// ── Exploration (the sample wardrobe's version of app/explore.py) ────────────
+const EXPLORE_COUNT = 4;
+
+/** A small seeded random generator, so the picks hold still for the day. */
+function seeded(seed: string) {
+  let h = 2166136261;
+  for (let i = 0; i < seed.length; i++) h = Math.imul(h ^ seed.charCodeAt(i), 16777619);
+  return () => {
+    h = (h + 0x6d2b79f5) | 0;
+    let t = Math.imul(h ^ (h >>> 15), 1 | h);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/** Pieces to learn the user's taste from: styles they wear little, colours they don't own, one
+ *  per style, category and colour. Without reactions to go on, everything counts as unknown. */
+export function localExplore(wardrobe: Item[], wear: Wear, exclude: Set<string>, seed: string, styles: string[]): NextBuy[] {
+  const random = seeded(seed);
+  const counts = new Map<string, number>();
+  for (const p of wardrobe) counts.set(p.style, (counts.get(p.style) ?? 0) + 1);
+  const owned = new Set(wardrobe.map((p) => colorName(p.color)));
+  const options: { score: number; key: string; garment: string; colour: string; hex: string; style: string; novelty: number; newColour: boolean }[] = [];
+  for (const style of styles) {
+    const novelty = 1 - Math.min(1, (2 * (counts.get(style) ?? 0)) / Math.max(1, wardrobe.length));
+    for (const [garment, t] of Object.entries(TYPES)) {
+      if (!t.styles.includes(style) || (t.women && wear === "men")) continue;
+      for (const [colour, hex] of PALETTE) {
+        const key = `${t.category}|${garment}|${colour}`;
+        if (exclude.has(key)) continue;
+        const newColour = !owned.has(colour);
+        options.push({ score: 0.45 * novelty + 0.2 * (newColour ? 1 : 0) + 0.35 + 0.35 * random(), key, garment, colour, hex, style, novelty, newColour });
+      }
+    }
+  }
+  options.sort((a, b) => b.score - a.score);
+  const used = new Set<string>();
+  const picks: NextBuy[] = [];
+  for (const o of options) {
+    const t = TYPES[o.garment];
+    const marks = [`s|${o.style}`, `c|${t.category}`, `k|${o.colour}`];
+    if (marks.some((m) => used.has(m))) continue;
+    marks.forEach((m) => used.add(m));
+    const query = describe(o.colour, t.fabric, o.garment);
+    picks.push({
+      key: o.key,
+      spec: { category: t.category, garment: o.garment, color: o.hex, color_name: o.colour, texture: t.fabric, style: o.style },
+      query,
+      title: query.charAt(0).toUpperCase() + query.slice(1),
+      value: 0, outfits: 0, total_gain: 0, avg_gain: 0, best_gain: 0,
+      reason: o.novelty >= 0.6 ? `More ${o.style.toLowerCase()} than what you usually wear.` : o.newColour ? `${o.colour} isn’t in your wardrobe yet.` : `A different take on ${o.style.toLowerCase()}.`,
+      examples: [],
+      explore: true,
+    });
+    if (picks.length === EXPLORE_COUNT) break;
+  }
+  return picks;
+}
+
+/** The deck's order: `base` as it is, with one of `extra` after every `every` cards (the rest at the end). */
+export function interleave<T>(base: T[], extra: T[], every: number): T[] {
+  const out: T[] = [];
+  let j = 0;
+  base.forEach((b, i) => {
+    out.push(b);
+    if ((i + 1) % every === 0 && j < extra.length) out.push(extra[j++]);
+  });
+  return [...out, ...extra.slice(j)];
+}
+
+// ── Whole outfits (the sample wardrobe's version of improve.looks) ───────────
+const FIRST = "suggested-1";
+
+export const lookKey = (clothIds: string[], pieces: { key: string }[]) =>
+  `look|${[...clothIds].sort().join(",")}|${pieces.map((p) => p.key).sort().join(",")}`;
+
+function asLook(kind: SuggestedLook["kind"], outfit: { items: Item[]; style: string; source: BuyExample["source"]; name: string | null }, steps: Found[]): SuggestedLook {
+  const replaced = new Set(steps.map((s) => s.replaces?.id).filter(Boolean));
+  const kept = outfit.items.map((i) => i.id).filter((id) => !replaced.has(id));
+  const pieces = steps.map((s) => ({ key: s.key, spec: s.spec, query: s.query, title: s.title, replaces: s.replaces?.id ?? null }));
+  const before = steps[0].scoreBefore;
+  const after = steps[steps.length - 1].scoreAfter;
+  return { key: lookKey(kept, pieces), kind, style: outfit.style, source: outfit.source, name: outfit.name, cloth_ids: kept, pieces, before, after, gain: after - before, reason: steps[0].reason };
+}
+
+/** Whole outfits to suggest: each outfit with its best swap in, and the best of them taken further
+ *  with a second new piece. One per outfit and per new piece, so they read as different ideas. */
+export function localLooks(
+  outfits: { items: Item[]; style: string; source: BuyExample["source"]; name: string | null }[],
+  wardrobe: Item[],
+  wear: Wear = "both",
+  improved = 4,
+  news = 3,
+): SuggestedLook[] {
+  const best = outfits
+    .map((outfit) => {
+      const found = improvementsFor(outfit.items, outfit.style, wardrobe, wear);
+      return { outfit, s: found.length ? found.reduce((a, b) => (preference(b) > preference(a) ? b : a)) : null };
+    })
+    .filter((x): x is { outfit: (typeof outfits)[number]; s: Found } => x.s !== null)
+    .sort((a, b) => preference(b.s) - preference(a.s));
+
+  const out: SuggestedLook[] = [];
+  const seen = new Set<string>();
+  const keys = new Set<string>();
+  for (const { outfit, s } of best) {
+    const sig = outfit.items.map((i) => i.id).sort().join();
+    if (seen.has(sig) || keys.has(s.key)) continue;
+    seen.add(sig);
+    keys.add(s.key);
+    out.push(asLook("improved", outfit, [s]));
+    if (out.length === improved) break;
+  }
+
+  const further: { value: number; outfit: (typeof outfits)[number]; s: Found; t: Found }[] = [];
+  for (const { outfit, s } of best) {
+    const first: Item = { id: FIRST, name: s.title, category: s.spec.category, color: s.spec.color, texture: s.spec.texture, style: s.spec.style, garment: s.spec.garment };
+    const withFirst = s.replaces ? outfit.items.map((i) => (i === s.replaces ? first : i)) : [...outfit.items, first];
+    const second = improvementsFor(withFirst, outfit.style, wardrobe, wear).filter((t) => t.replaces?.id !== FIRST && t.key !== s.key);
+    if (!second.length) continue;
+    const t = second.reduce((a, b) => (preference(b) > preference(a) ? b : a));
+    further.push({ value: preference(s) + preference(t), outfit, s, t });
+  }
+  further.sort((a, b) => b.value - a.value);
+  seen.clear();
+  keys.clear();
+  let count = 0;
+  for (const { outfit, s, t } of further) {
+    const sig = outfit.items.map((i) => i.id).sort().join();
+    if (seen.has(sig) || keys.has(s.key) || keys.has(t.key)) continue;
+    seen.add(sig);
+    keys.add(s.key).add(t.key);
+    out.push(asLook("new", outfit, [s, t]));
+    if (++count === news) break;
+  }
+  return out;
 }

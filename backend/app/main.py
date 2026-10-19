@@ -23,10 +23,10 @@ from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from .config import settings
 from .database import make_engine
-from .models import Base, User, Wardrobe, Cloth, Outfit, RevokedToken, Suggestion, SuggestionEvent
+from .models import Base, User, Wardrobe, Cloth, Outfit, RevokedToken, SavedLook, Suggestion, SuggestionEvent
 from .embeddings import EmbeddingClient, EmbeddingUnavailable
 from .text_cache import TextEmbeddingStore
-from . import improve, learning, meaning
+from . import explore, improve, learning, meaning
 from . import persona as taste
 from .matching import SHAPES, is_outfit, rank, score_combo
 from . import attributes
@@ -476,6 +476,8 @@ def delete_account(body: Confirm, u=Depends(user), session=Depends(db)):
         session.delete(row)
     for row in session.scalars(select(RevokedToken).where(RevokedToken.user_id == u.id)):
         session.delete(row)
+    for row in session.scalars(select(SavedLook).where(SavedLook.user_id == u.id)):
+        session.delete(row)
     # The models have no relationships, so the ORM doesn't know rows depend on each other and may
     # delete a user before its wardrobes. Flushing level by level keeps the foreign keys satisfied.
     session.flush()
@@ -612,7 +614,7 @@ def upload(
             logger.error("Image cleanup failed after database rollback")
         raise
     followed(u, c, session)
-    return cloth_json(c)
+    return {**cloth_json(c), "completed": complete_looks(u, c, session)}
 
 
 def followed(u, c, session):
@@ -636,6 +638,45 @@ def followed(u, c, session):
     except Exception:
         session.rollback()
         logger.warning("Couldn't record a followed suggestion", exc_info=True)
+
+
+def complete_looks(u, c, session):
+    """Saved suggested outfits this new piece completes become real saved outfits.
+
+    Best effort, like followed(): returns the outfits made, for the app to say so."""
+    try:
+        pieces = list(session.scalars(select(Cloth).where(Cloth.wardrobe_id == c.wardrobe_id)))
+        by_key = {}
+        for p in pieces:
+            by_key.setdefault(improve.piece_key(p), p.id)
+        if improve.piece_key(c) not in by_key:
+            return []
+        made = []
+        for look in session.scalars(select(SavedLook).where(SavedLook.user_id == u.id, SavedLook.wardrobe_id == c.wardrobe_id)):
+            data = look.data
+            needed = [p["key"] for p in data["pieces"]]
+            if improve.piece_key(c) not in needed or not all(k in by_key for k in needed):
+                continue
+            cloth_ids = [*data["cloth_ids"], *(by_key[k] for k in needed)]
+            items = [p for p in pieces if p.id in cloth_ids]
+            if len(items) != len(cloth_ids) or not is_outfit(i.category for i in items):
+                continue
+            name = data.get("name") or f"{data['style']} look"
+            scored = saved_score(items, data["style"])
+            o = Outfit(
+                wardrobe_id=c.wardrobe_id, name=name, style=data["style"], cloth_ids=cloth_ids,
+                score=scored.get("score"), breakdown=scored.get("breakdown"),
+                score_version=meaning.SCORE_VERSION if scored else None,
+            )
+            session.add(o)
+            session.delete(look)
+            made.append({"id": o.id, "name": name, "style": data["style"]})
+        session.commit()
+        return made
+    except Exception:
+        session.rollback()
+        logger.warning("Couldn't complete saved looks", exc_info=True)
+        return []
 
 
 @app.delete("/wardrobes/{wid}/clothes/{cid}")
@@ -1005,6 +1046,20 @@ def reactions(uid, session):
     return [tuple(e) for e in events], {key: n for key, n in shown}
 
 
+def look_reactions(uid, session):
+    """The latest reaction to each suggested outfit: {look key: action}."""
+    latest = {}
+    rows = session.execute(
+        select(SuggestionEvent.action, SuggestionEvent.context)
+        .where(SuggestionEvent.user_id == uid, SuggestionEvent.action.startswith("look_", autoescape=True))
+        .order_by(SuggestionEvent.created_at)
+    )
+    for action, context in rows:
+        if isinstance(context, dict) and context.get("look"):
+            latest[context["look"]] = action
+    return latest
+
+
 def dismissed(uid, session):
     return frozenset(
         session.scalars(
@@ -1023,7 +1078,12 @@ def current_persona(u, session, vectors):
     events, shown = reactions(u.id, session)
     feedback = {}
     for action, *_ in events:
-        feedback[action] = feedback.get(action, 0) + 1
+        if not action.startswith("look_"):
+            feedback[action] = feedback.get(action, 0) + 1
+    # Outfits are counted once each, not once per new piece in them.
+    for action in look_reactions(u.id, session).values():
+        name = "outfits_" + action.removeprefix("look_")
+        feedback[name] = feedback.get(name, 0) + 1
     learned = learning.learn(events, shown)
     # "Shown" events and time only move the weights a little: coarse() keeps those from
     # recomputing everything on every visit, while real reactions do.
@@ -1113,19 +1173,26 @@ def suggestion_context(w, u, session):
         lock_wardrobe(w.id, session)
         rows = stored_suggestions(w.id, session)
     if not rows or any(r.fingerprint != fp for r in rows):
-        per_outfit = []
+        per_outfit, measured = [], []
         for outfit, items in outfits_to_improve(pieces, saved_outfits, persona, vectors, rules):
             semantic = meaning.piece_scores(items, outfit["style"], vectors)
-            per_outfit.append((outfit, improve.improvements(
+            found = improve.improvements(
                 items, outfit["style"], semantic, rules, fit_for(outfit["style"]), persona["wear"], exclude,
-            )))
+            )
+            per_outfit.append((outfit, found))
+            measured.append((outfit, items, semantic, found))
         ranked = improve.group(per_outfit, persona_fit, rules)
+        suggested_looks = improve.looks(measured, persona_fit, rules, fit_for, persona["wear"], exclude)
         # One statement for whatever rows exist now, so a row already gone can't fail it.
         session.execute(delete(Suggestion).where(Suggestion.wardrobe_id == w.id))
         rows = [
             Suggestion(
                 wardrobe_id=w.id, fingerprint=fp, rank=-1, key=improve.REACH_KEY, value=0,
                 data={"reach": improve.reach(per_outfit), "considered": len(per_outfit)},
+            ),
+            Suggestion(
+                wardrobe_id=w.id, fingerprint=fp, rank=-2, key=improve.LOOKS_KEY, value=0,
+                data={"looks": suggested_looks},
             ),
             *(
                 Suggestion(wardrobe_id=w.id, fingerprint=fp, rank=i, key=r["key"], value=r["value"], data=r)
@@ -1135,10 +1202,12 @@ def suggestion_context(w, u, session):
         session.add_all(rows)
         session.commit()
     meta = next((r.data for r in rows if r.key == improve.REACH_KEY), {})
+    stored_looks = next((r.data for r in rows if r.key == improve.LOOKS_KEY), {})
     return SimpleNamespace(
         vectors=vectors, persona=persona, rules=rules, exclude=exclude,
         persona_fit=persona_fit, fit_for=fit_for,
-        ranked=[r.data for r in rows if r.key != improve.REACH_KEY],
+        ranked=[r.data for r in rows if r.key not in (improve.REACH_KEY, improve.LOOKS_KEY)],
+        looks=stored_looks.get("looks", []),
         **{k: meta.get(k, d) for k, d in (("reach", {}), ("considered", 0))},
     )
 
@@ -1159,9 +1228,17 @@ def wardrobe_suggestions(wid: str, u=Depends(user), session=Depends(db)):
     w = owned(wid, u, session)
     ctx = suggestion_context(w, u, session)
     complete = any(set(shape) <= {c.category for c in session.scalars(select(Cloth).where(Cloth.wardrobe_id == wid))} for shape in SHAPES)
+    # A few pieces to learn the user's taste from, mixed into the deck by the app: not ones already
+    # suggested, owned, or reacted to.
+    events, _ = reactions(u.id, session)
+    seen = ctx.exclude | {r["key"] for r in ctx.ranked} | {key for _, key, *_ in events}
+    seed = f"{u.id}|{wid}|{datetime.now(timezone.utc).date().isoformat()}"
     return {
         "persona": persona_json(ctx.persona),
         "suggestions": ctx.ranked,
+        "explore": explore.picks(ctx.persona, seen, seed) if complete else [],
+        # Whole outfits to swipe on, except those already saved or turned down.
+        "looks": [look for look in ctx.looks if look["key"] not in look_reactions(u.id, session)],
         # How many outfits were measured (saved + best generated), and whether any can be made.
         "considered": ctx.considered,
         "complete": complete,
@@ -1201,7 +1278,10 @@ class EventSpec(BaseModel):
 
 
 class Event(BaseModel):
-    action: Literal["shown", "saved", "unsaved", "dismissed", "owned", "clicked", "bought"]
+    action: Literal[
+        "shown", "saved", "unsaved", "dismissed", "owned", "clicked", "bought",
+        "look_saved", "look_unsaved", "look_dismissed", "look_owned",
+    ]
     key: str = Field(max_length=120)
     spec: EventSpec
     source: Literal["outfit", "lab", "next-buys"]
@@ -1209,6 +1289,10 @@ class Event(BaseModel):
     gain: int | None = Field(None, ge=-100, le=100)
     position: int | None = Field(None, ge=0, le=50)
     cloth_ids: list[str] = Field(default_factory=list, max_length=4)
+    # Shown to learn the user's taste (explore.py) rather than to improve an outfit.
+    explore: bool = False
+    # For a suggested outfit's events: the outfit (improve.look_key); one event per new piece.
+    look: str | None = Field(None, max_length=600)
 
 
 class Events(BaseModel):
@@ -1221,11 +1305,13 @@ def record_events(body: Events, u=Depends(user), session=Depends(db)):
     for e in body.events:
         if e.key != improve.key_of(e.spec.category, e.spec.garment, e.spec.color_name):
             raise HTTPException(422, "This suggestion doesn’t match its description")
+        if e.action.startswith("look_") != bool(e.look):
+            raise HTTPException(422, "Outfit reactions need the outfit they’re about")
         if e.wardrobe_id:
             owned(e.wardrobe_id, u, session)
         session.add(SuggestionEvent(
             user_id=u.id, wardrobe_id=e.wardrobe_id, action=e.action, key=e.key, spec=e.spec.model_dump(),
-            context={"source": e.source, "gain": e.gain, "position": e.position, "cloth_ids": e.cloth_ids},
+            context={"source": e.source, "gain": e.gain, "position": e.position, "cloth_ids": e.cloth_ids, "explore": e.explore, "look": e.look},
         ))
     session.commit()
     return {"ok": True, "recorded": len(body.events)}
@@ -1251,6 +1337,86 @@ def wishlist(u=Depends(user), session=Depends(db)):
         for e in sorted(latest.values(), key=lambda e: e.created_at or 0, reverse=True)
         if e.action == "saved" and e.spec.get("garment") in improve.TYPES and e.spec.get("color_name") in improve.COLOR_NAMES
     ]
+
+
+class LookPiece(BaseModel):
+    key: str = Field(max_length=120)
+    spec: EventSpec
+    replaces: str | None = Field(None, max_length=40)
+
+
+class LookIn(BaseModel):
+    kind: Literal["improved", "new"]
+    style: Style
+    source: Literal["saved", "generated"]
+    name: str | None = Field(None, max_length=80, pattern=PLAIN_TEXT)
+    cloth_ids: list[str] = Field(min_length=1, max_length=4)
+    pieces: list[LookPiece] = Field(min_length=1, max_length=2)
+    before: int = Field(ge=0, le=100)
+    after: int = Field(ge=0, le=100)
+    reason: str = Field("", max_length=300, pattern=r"^[^\x00-\x1f\x7f]*$")
+
+
+class SaveLook(BaseModel):
+    wardrobe_id: str = Field(max_length=40)
+    look: LookIn
+
+
+def saved_look_json(row, wardrobe, by_id):
+    return {
+        "id": row.id, "key": row.key, "wardrobe_id": wardrobe.id, "wardrobe": wardrobe.name,
+        **row.data, "items": [cloth_json(by_id[cid]) for cid in row.data["cloth_ids"]],
+    }
+
+
+@app.get("/me/looks")
+def saved_looks(u=Depends(user), session=Depends(db)):
+    """Suggested outfits the user saved, with the pieces they own in each."""
+    wardrobes = {w.id: w for w in session.scalars(select(Wardrobe).where(Wardrobe.user_id == u.id))}
+    rows = list(session.scalars(select(SavedLook).where(SavedLook.user_id == u.id).order_by(SavedLook.created_at.desc())))
+    ids = {cid for r in rows for cid in r.data["cloth_ids"]}
+    by_id = {c.id: c for c in session.scalars(select(Cloth).where(Cloth.id.in_(ids)))} if ids else {}
+    out = []
+    for r in rows:
+        # A piece it was built on has been removed since: the outfit no longer exists.
+        if r.wardrobe_id in wardrobes and all(cid in by_id for cid in r.data["cloth_ids"]):
+            out.append(saved_look_json(r, wardrobes[r.wardrobe_id], by_id))
+    return out
+
+
+@app.post("/me/looks")
+def save_look(body: SaveLook, u=Depends(user), session=Depends(db)):
+    """Saves a suggested outfit (from Next buys) to the Saved page."""
+    w = owned(body.wardrobe_id, u, session)
+    look = body.look
+    for p in look.pieces:
+        if p.key != improve.key_of(p.spec.category, p.spec.garment, p.spec.color_name) or p.spec.garment not in improve.TYPES:
+            raise HTTPException(422, "This suggestion doesn’t match its description")
+    kept = list(session.scalars(select(Cloth).where(Cloth.wardrobe_id == w.id, Cloth.id.in_(look.cloth_ids))))
+    categories = [c.category for c in kept] + [p.spec.category for p in look.pieces]
+    if len(kept) != len(set(look.cloth_ids)) or not is_outfit(categories):
+        raise HTTPException(400, "This outfit isn’t made from this wardrobe’s pieces")
+    pieces = [{"key": p.key, **improve.spec_of(p.spec.garment, p.spec.color_name, p.spec.style), "replaces": p.replaces} for p in look.pieces]
+    key = improve.look_key(look.cloth_ids, pieces)
+    row = session.scalar(select(SavedLook).where(SavedLook.user_id == u.id, SavedLook.key == key))
+    if row is None:
+        row = SavedLook(
+            user_id=u.id, wardrobe_id=w.id, key=key,
+            data={**look.model_dump(exclude={"pieces"}), "key": key, "pieces": pieces, "gain": look.after - look.before},
+        )
+        session.add(row)
+        session.commit()
+    return saved_look_json(row, w, {c.id: c for c in kept})
+
+
+@app.delete("/me/looks/{look_id}")
+def unsave_look(look_id: str, u=Depends(user), session=Depends(db)):
+    row = session.get(SavedLook, look_id)
+    if not row or row.user_id != u.id:
+        raise HTTPException(404, "Saved outfit not found")
+    session.delete(row)
+    session.commit()
+    return {"ok": True}
 
 
 @app.delete("/me/suggestion-events")

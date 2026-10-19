@@ -575,23 +575,16 @@ html[data-theme="dark"]:has(.app) { background: #0B0D0A; }
 .next__hint { padding: 0 4px; }
 .buy { display: flex; flex-direction: column; gap: 12px; padding: 14px; }
 .buy--saved, .buy--weather { flex-direction: row; align-items: center; }
-.buy__main { display: flex; align-items: flex-start; gap: 14px; }
 .buy__art { flex: none; display: grid; place-items: center; width: 64px; height: 64px; border-radius: var(--r-sm); background: var(--fill); overflow: hidden; }
 .buy__art svg, .buy__art img { width: 78%; height: 78%; }
-.buy--hero .buy__art { width: 112px; height: 112px; }
 .buy__icon { flex: none; display: grid; place-items: center; width: 44px; height: 44px; border-radius: 50%; background: color-mix(in srgb, var(--sage) 30%, transparent); color: var(--moss); }
 .dark .buy__icon { color: var(--sage); }
 .buy__text { display: flex; flex-direction: column; gap: 4px; min-width: 0; flex: 1; }
 .buy__title { font-weight: 650; font-size: 16px; }
-.buy--hero .buy__title { font-size: 20px; letter-spacing: -0.01em; }
-.buy__stats { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; color: var(--label-2); }
 .buy__reason { font-size: 14px; line-height: 1.4; color: var(--label-2); }
 .buy__actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .buy--saved .buy__actions { flex: none; }
 .ow .buy__actions .btn--plain { box-shadow: none; }
-.ow .buy__toggle { align-self: flex-start; box-shadow: none; color: var(--moss); font-weight: 650; }
-.dark .buy__toggle { color: var(--sage); }
-.buy__toggle .ic { width: 16px; height: 16px; }
 .buy__examples { display: flex; flex-direction: column; gap: 8px; }
 .buy__example { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px; border-radius: var(--r-sm); background: var(--fill); }
 .buy__look { display: flex; gap: 6px; flex: none; }
@@ -602,11 +595,106 @@ html[data-theme="dark"]:has(.app) { background: #0B0D0A; }
 .buy__score { display: inline-flex; align-items: center; gap: 4px; font-size: 15px; color: var(--label); }
 .buy__score .ic { width: 14px; height: 14px; color: var(--label-2); }
 @media (max-width: 520px) {
-  .buy--hero .buy__art { width: 84px; height: 84px; }
   .buy__example { flex-direction: column; align-items: flex-start; }
   .buy__about { align-items: flex-start; text-align: left; }
   .buy--saved { flex-wrap: wrap; }
   .buy--saved .buy__actions { width: 100%; padding-left: 78px; }
+}
+
+/* Next buys: the way to the saved clothes, under the deck */
+.ow button.next__saved { display: flex; align-items: center; gap: 14px; width: 100%; padding: 14px; border: 0; text-align: left; color: var(--label); cursor: pointer; font: inherit; transition: transform 140ms var(--ease-out); }
+.ow button.next__saved:active { transform: scale(0.985); }
+.next__saved > .ic { color: var(--label-3); }
+.next__saved-icon { flex: none; display: grid; place-items: center; width: 44px; height: 44px; border-radius: 50%; background: color-mix(in srgb, var(--sage) 30%, transparent); color: var(--moss); }
+.dark .next__saved-icon { color: var(--sage); }
+/* Saved: outfits or clothes */
+.saved-kind { margin-bottom: 4px; }
+
+/* Suggested outfits: the pieces as tiles, new ones marked (deck cards and Saved > Suggested) */
+.look__pieces { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.look__piece { position: relative; display: grid; place-items: center; aspect-ratio: 1; border-radius: var(--r-sm); background: var(--fill); overflow: hidden; }
+.look__piece svg, .look__piece img { width: 78%; height: 78%; object-fit: cover; pointer-events: none; }
+.look__piece img { width: 100%; height: 100%; }
+.look__piece.is-new { background: color-mix(in srgb, var(--primary) 12%, var(--surface)); box-shadow: inset 0 0 0 2px var(--primary); }
+.look__new { position: absolute; left: 6px; top: 6px; padding: 1px 7px; border-radius: 999px; background: var(--primary); color: var(--on-primary); font-size: 10.5px; font-weight: 700; letter-spacing: 0.02em; }
+.look__pieces--lg { grid-template-columns: repeat(2, minmax(0, 1fr)); width: min(82%, 260px); gap: 10px; }
+.look__pieces--lg .look__piece { background: var(--surface); box-shadow: var(--shadow-sm); }
+.look__pieces--lg .look__piece.is-new { background: color-mix(in srgb, var(--primary) 10%, var(--surface)); box-shadow: inset 0 0 0 2px var(--primary), var(--shadow-sm); }
+.deck__art--look { padding: 46px 0 14px; }
+.look { display: flex; flex-direction: column; gap: 12px; padding: 14px; }
+.look__head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.look__need { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.look__need li { display: flex; align-items: center; gap: 10px; padding: 6px 6px 6px 10px; border-radius: var(--r-sm); background: var(--fill); }
+.look__need-title { flex: 1; min-width: 0; font-size: 14px; font-weight: 600; }
+.look__dot { flex: none; width: 12px; height: 12px; border-radius: 50%; box-shadow: inset 0 0 0 1px rgba(30, 34, 29, 0.15); }
+.look .buy__actions .btn--plain { box-shadow: none; }
+@media (min-width: 761px) { .look__pieces:not(.look__pieces--lg) { max-width: 420px; } }
+
+/* Next buys: the swipe deck */
+.deck-wrap { display: flex; flex-direction: column; align-items: center; gap: 18px; overflow-x: clip; padding: 4px 0 2px; }
+/* Sized so the buttons under it stay in view (above the floating tab bar on phones). */
+.deck { --lift: 0; position: relative; width: min(100%, 380px); height: clamp(340px, calc(100svh - 300px), 470px); margin-bottom: 20px; }
+@media (max-width: 760px) { .deck { height: clamp(340px, calc(100svh - 480px), 470px); } }
+.deck__card { position: absolute; inset: 0; perspective: 1400px; transform-origin: 50% 85%; transform: translate3d(0, calc((var(--i) - var(--lift)) * 13px), 0) scale(calc(1 - (var(--i) - var(--lift)) * 0.05)); transition: transform 260ms var(--ease-out); }
+.deck__card.is-top { transform: none; cursor: grab; touch-action: none; user-select: none; -webkit-user-select: none; outline: none; }
+.deck__card.is-top:active { cursor: grabbing; }
+.deck__card.is-top:focus-visible .deck__face { box-shadow: 0 0 0 3px var(--bg), 0 0 0 5px var(--sel-ring), var(--shadow-lg); }
+.deck__card:not(.is-top) .deck__face { box-shadow: var(--shadow-md); }
+.deck__card:nth-child(1):not(.is-top) { opacity: calc(0.55 + var(--lift) * 0.45); }
+.deck__flip { position: relative; height: 100%; transform-style: preserve-3d; transition: transform 560ms var(--ease-spring); }
+.deck__flip.is-flipped { transform: rotateY(180deg); }
+.deck__face { position: absolute; inset: 0; display: flex; flex-direction: column; gap: 14px; padding: 14px; border-radius: var(--r-xl); box-shadow: var(--shadow-lg); backface-visibility: hidden; -webkit-backface-visibility: hidden; overflow: hidden; }
+.deck__back { transform: rotateY(180deg); padding: 22px 18px 14px; }
+.deck__art { position: relative; flex: 1 1 auto; min-height: 0; display: grid; place-items: center; border-radius: calc(var(--r-xl) - 8px); background: var(--media); }
+.deck__art > svg, .deck__art > img { width: 58%; height: 78%; filter: drop-shadow(0 16px 20px rgba(30, 34, 29, 0.16)); pointer-events: none; }
+.deck img { -webkit-user-drag: none; }
+.deck__badges { position: absolute; left: 12px; right: 12px; top: 12px; display: flex; align-items: center; gap: 8px; }
+.deck__best { padding: 3px 10px; border-radius: 999px; background: var(--primary); color: var(--on-primary); font-size: 12px; font-weight: 700; letter-spacing: 0.02em; }
+.deck__gain { margin-left: auto; font-size: 13px; padding: 3px 10px; }
+.deck__text { display: flex; flex-direction: column; gap: 4px; padding: 0 4px; }
+.deck__title { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.015em; line-height: 1.2; }
+.deck__reason { margin: 4px 0 0; font-size: 14.5px; line-height: 1.4; color: var(--label-2); display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; line-clamp: 3; overflow: hidden; }
+.deck__hint { font-size: 12.5px; font-weight: 600; color: var(--label-3); }
+.deck__back > .deck__hint { align-self: center; }
+.deck__foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 30px; padding: 0 4px; }
+.deck__new { padding: 3px 10px; border-radius: 999px; background: var(--ink); color: var(--on-ink); font-size: 12px; font-weight: 700; letter-spacing: 0.02em; }
+.dark .deck__new { background: var(--sage); color: #1E221D; }
+/* The back's outfits scroll inside the card: up and down scroll, sideways still swipes. */
+.deck__scroll { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; touch-action: pan-y; margin: 0 -6px; padding: 0 6px 6px; scrollbar-width: thin; }
+.deck__back .buy__example { flex-direction: row; align-items: center; padding: 8px; }
+.deck__back .buy__about { align-items: flex-end; text-align: right; }
+.deck__back .buy__mini { width: 34px; height: 34px; border-radius: 9px; }
+.deck__back .buy__look { gap: 4px; }
+.deck__stamp { position: absolute; top: 26px; z-index: 2; padding: 6px 14px; border: 3px solid currentColor; border-radius: 12px; background: color-mix(in srgb, var(--surface) 82%, transparent); font-size: 20px; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; pointer-events: none; opacity: 0; }
+.deck__stamp--right { left: 22px; color: var(--moss); rotate: -12deg; opacity: var(--right, 0); }
+.deck__stamp--left { right: 22px; color: var(--danger); rotate: 12deg; opacity: var(--left, 0); }
+.deck__stamp--up { left: 50%; top: auto; bottom: 42%; translate: -50% 0; color: var(--ink); opacity: var(--up, 0); }
+.dark .deck__stamp--right { color: var(--sage); }
+.dark .deck__stamp--up { color: var(--label); }
+.deck__actions { display: flex; align-items: flex-start; justify-content: center; gap: 22px; }
+.ow .deck__btn { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 0; border: 0; background: none; color: var(--label-2); font: inherit; cursor: pointer; }
+.deck__icon { display: grid; place-items: center; width: 58px; height: 58px; border-radius: 50%; background: var(--surface); box-shadow: var(--shadow-md); transition: transform 140ms var(--ease-out), background-color 150ms ease; }
+.deck__icon .ic { width: 24px; height: 24px; }
+.deck__btn--up .deck__icon { width: 48px; height: 48px; margin-top: 5px; }
+.deck__btn--up .deck__icon .ic { width: 20px; height: 20px; }
+.deck__btn--left .deck__icon { color: var(--danger); }
+.deck__btn--up .deck__icon { color: var(--label); }
+.deck__btn--right .deck__icon { background: var(--primary); color: var(--on-primary); }
+.deck__btn:active .deck__icon { transform: scale(0.92); }
+.deck__btn:disabled { cursor: default; }
+.deck__btn:focus-visible { outline: none; }
+.deck__btn:focus-visible .deck__icon { box-shadow: 0 0 0 3px var(--bg), 0 0 0 5px var(--sel-ring); }
+.deck__cap { font-size: 12px; font-weight: 600; }
+@media (hover: hover) {
+  .deck__btn:not(:disabled):hover .deck__icon { transform: translateY(-2px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .deck__card { transition: opacity 200ms ease; }
+  .deck__flip, .deck__flip.is-flipped { transform: none; transition: none; }
+  .deck__back { transform: none; opacity: 0; transition: opacity 200ms ease; }
+  .deck__front { transition: opacity 200ms ease; }
+  .is-flipped .deck__back { opacity: 1; }
+  .is-flipped .deck__front { opacity: 0; }
 }
 
 /* Account: what the persona learned from reactions */

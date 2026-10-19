@@ -5,7 +5,7 @@ import { KEEP_OOTD_UNSEEN_FOR_TESTING } from "./testing";
 import { describePiece } from "./describe";
 import { greeting } from "./greeting";
 import { StudioLoopVideo } from "./StudioLoopVideo";
-import { asPiece, type NextBuysState } from "./nextbuys";
+import { asPiece, SavedClothes, SavedLooks, type NextBuysState } from "./nextbuys";
 import {
   ColorLabel,
   Dialog,
@@ -25,8 +25,12 @@ import {
 import { categories, categoriesFor, garmentTypes, styles, textures, typesFor, type Wear, type Category, type Look, type MissingPiece, type Piece, type Store, type Weather } from "./store";
 
 export type Route =
-  | { name: "home" | "today" | "wardrobes" | "wardrobe" | "studio" | "saved" | "next" | "lab" | "account" }
+  | { name: "home" | "today" | "wardrobes" | "wardrobe" | "studio" | "next" | "lab" | "account" }
+  | { name: "saved"; tab?: SavedTab }
   | { name: "piece"; id: string };
+
+/** The Saved page's lists: outfits, clothes saved from Next buys, and suggested outfits saved from it. */
+export type SavedTab = "outfits" | "clothes" | "suggested";
 
 export type StudioState = {
   style: string;
@@ -1096,8 +1100,10 @@ export function Studio({ app }: { app: App }) {
 }
 
 // ── Saved ───────────────────────────────────────────────────────────────────
-export function Saved({ app }: { app: App }) {
+export function Saved({ app, tab: kind }: { app: App; tab: SavedTab }) {
   const { store } = app;
+  const clothes = app.nextBuys.wishlist;
+  const suggested = app.nextBuys.savedLooks;
   const [tab, setTab] = useState("all");
   const [all, setAll] = useState<Record<string, Look[]>>({});
   const [error, setError] = useState("");
@@ -1109,6 +1115,8 @@ export function Saved({ app }: { app: App }) {
       .catch((e) => !controller.signal.aborted && setError(e.message));
     return () => controller.abort();
   }, [store.wardrobes, store.loadSaved]);
+  const outfitsIn = (w: { id: string }) => (w.id === store.wid ? store.saved : (all[w.id] ?? []));
+  const outfitCount = store.wardrobes.reduce((n, w) => n + outfitsIn(w).length, 0);
   const list = store.wardrobes
     .filter((w) => tab === "all" || w.id === tab)
     .flatMap((w) => (w.id === store.wid ? store.saved : (all[w.id] ?? [])).map((look) => ({ look, w })));
@@ -1125,8 +1133,32 @@ export function Saved({ app }: { app: App }) {
     <>
       <div className="page-head__text">
         <h1 className="t-large">Saved</h1>
-        <p className="t-sub">Looks you’ve kept for later.</p>
+        <p className="t-sub">
+          {kind === "clothes"
+            ? "Pieces you’d like to buy, kept until you do."
+            : kind === "suggested"
+              ? "Outfit ideas that need a new piece or two. Add the pieces and they become your saved outfits."
+              : "Looks you’ve kept for later."}
+        </p>
       </div>
+      <Seg
+        label="Show"
+        className="saved-kind"
+        value={kind}
+        onChange={(v) => app.go({ name: "saved", tab: v as SavedTab })}
+        style={{ width: "min(480px, 100%)" }}
+        options={[
+          { value: "outfits", label: `Outfits${outfitCount ? ` · ${outfitCount}` : ""}` },
+          { value: "clothes", label: `Clothes${clothes.length ? ` · ${clothes.length}` : ""}` },
+          { value: "suggested", label: `Suggested${suggested.length ? ` · ${suggested.length}` : ""}` },
+        ]}
+      />
+      {kind === "clothes" ? (
+        <SavedClothes app={app} />
+      ) : kind === "suggested" ? (
+        <SavedLooks app={app} />
+      ) : (
+      <>
       <div className="toolbar">
         <Seg
           label="Wardrobe"
@@ -1178,6 +1210,8 @@ export function Saved({ app }: { app: App }) {
         </div>
       ) : (
         <Empty text="Nothing saved yet. Save an outfit in the studio and it waits for you here." action={{ label: "Open the studio", run: () => app.go({ name: "studio" }) }} />
+      )}
+      </>
       )}
     </>
   );
@@ -1272,10 +1306,20 @@ export function AddPiece({ app, open, onClose, prefill }: { app: App; open: bool
     setBusy(true);
     setError("");
     try {
-      await store.addPiece(file, { ...draft, name: draft.name.trim() }, target);
+      const added = await store.addPiece(file, { ...draft, name: draft.name.trim() }, target);
       onClose();
       const w = store.wardrobes.find((x) => x.id === target);
-      app.toast({ kind: "Added", text: `${draft.name.trim()} is in ${w?.name ?? "your wardrobe"}` });
+      const done = added.completed ?? [];
+      if (done.length) {
+        // A saved suggested outfit now has all its pieces: it's a real saved outfit.
+        app.toast({
+          kind: "Outfit complete",
+          text: done.length === 1 ? `“${done[0].name}” is now one of your saved outfits` : `${done.length} suggested outfits are now saved outfits`,
+          action: { label: "View", run: () => app.go({ name: "saved" }) },
+        });
+      } else {
+        app.toast({ kind: "Added", text: `${draft.name.trim()} is in ${w?.name ?? "your wardrobe"}` });
+      }
     } catch (e) {
       setError((e as Error).message);
     } finally {

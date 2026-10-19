@@ -21,7 +21,7 @@ from .garments import TYPES
 from .matching import hsv, score_combo, texture_score
 
 # Bump when the way suggestions are made changes: stored ones are then recomputed.
-VERSION = 2
+VERSION = 3
 
 # Colours people actually buy clothes in (a subset of attributes.COLOR_NAMES).
 PALETTE = (
@@ -330,3 +330,95 @@ def group(per_outfit, persona_fit, rules, limit=30):
             break
     return chosen
 
+
+
+# ── Whole outfits ────────────────────────────────────────────────────────────
+# The stored row holding the suggested outfits, next to the ranked pieces (rank -2).
+LOOKS_KEY = "*looks*"
+FIRST = "suggested-1"  # the id the first new piece of a two-piece look is scored under
+
+
+def look_key(cloth_ids, pieces):
+    """Identifies a suggested outfit: the pieces kept and the pieces added."""
+    return "look|" + ",".join(sorted(cloth_ids)) + "|" + ",".join(sorted(p["key"] for p in pieces))
+
+
+def as_piece(s, piece_id):
+    """A suggested piece as an outfit item, to score outfits it's part of."""
+    spec = s["spec"]
+    return SimpleNamespace(
+        id=piece_id, category=spec["category"], garment=spec["garment"], color=spec["color"],
+        texture=spec["texture"], style=spec["style"], embedding=None, name=s["title"],
+    )
+
+
+def look_json(kind, outfit, steps, rules):
+    """A suggested outfit: the owned pieces it keeps, the 1-2 pieces it adds, and the score change."""
+    replaced = {s["replaces"] for s in steps if s["replaces"]}
+    kept = [cid for cid in outfit["cloth_ids"] if cid not in replaced]
+    pieces = [
+        {"key": s["key"], "spec": s["spec"], "query": s["query"], "title": s["title"], "replaces": s["replaces"]}
+        for s in steps
+    ]
+    before, after = steps[0]["before"]["score"], steps[-1]["after"]["score"]
+    return {
+        "key": look_key(kept, pieces), "kind": kind,
+        "style": outfit["style"], "source": outfit["source"], "name": outfit.get("name"),
+        "cloth_ids": kept, "pieces": pieces,
+        "before": before, "after": after, "gain": after - before,
+        "reason": reason(steps[0], rules),
+    }
+
+
+def looks(measured, persona_fit, rules, fit_for, wear="both", exclude=frozenset(), improved=4, new=3):
+    """Whole outfits to suggest, from the outfits measured for Next buys.
+
+    measured: (outfit, items, semantic, improvements) for each outfit.
+    "improved": one of the user's outfits with its best swap in (they own all but one piece).
+    "new": that outfit taken further with a second new piece, for a look they don't have yet.
+    Each outfit and each new piece is used once per kind, so the looks read as different ideas.
+    """
+    def pref(s):
+        return preference(s, persona_fit(s["spec"]))
+
+    best = [(outfit, items, semantic, max(found, key=pref)) for outfit, items, semantic, found in measured if found]
+    best.sort(key=lambda x: pref(x[3]), reverse=True)
+
+    out, outfits, keys = [], set(), set()
+    for outfit, _, _, s in best:
+        sig = frozenset(outfit["cloth_ids"])
+        if sig in outfits or s["key"] in keys:
+            continue
+        outfits.add(sig)
+        keys.add(s["key"])
+        out.append(look_json("improved", outfit, [s], rules))
+        if len(out) == improved:
+            break
+
+    further = []
+    for outfit, items, semantic, s in best:
+        style = outfit["style"]
+        first = as_piece(s, FIRST)
+        replaced = s["_replaced"]
+        with_first = [first if c is replaced else c for c in items] if replaced is not None else [*items, first]
+        scores = {**semantic, FIRST: meaning.with_garment(fit_for(style), s["spec"]["garment"], style)}
+        second = [
+            t for t in improvements(with_first, style, scores, rules, fit_for(style), wear, exclude | {s["key"]})
+            if t["_replaced"] is not first
+        ]
+        if second:
+            t = max(second, key=pref)
+            further.append((pref(s) + pref(t), outfit, s, t))
+    further.sort(key=lambda x: x[0], reverse=True)
+    outfits, keys, count = set(), set(), 0
+    for _, outfit, s, t in further:
+        sig = frozenset(outfit["cloth_ids"])
+        if sig in outfits or {s["key"], t["key"]} & keys:
+            continue
+        outfits.add(sig)
+        keys |= {s["key"], t["key"]}
+        out.append(look_json("new", outfit, [s, t], rules))
+        count += 1
+        if count == new:
+            break
+    return out

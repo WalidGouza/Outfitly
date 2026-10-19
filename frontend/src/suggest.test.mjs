@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {suggestFor} from './suggest.ts';
+import {interleave, localExplore, localLooks, lookKey, suggestFor} from './suggest.ts';
 
 const p=(id,category,color,texture,style,garment,name)=>({id,category,color,texture,style,garment,name:name??`${id}`});
 // A streetwear outfit with one piece pulling the wrong way (Evening heels).
@@ -53,4 +53,34 @@ test('next buys group a piece across outfits and rank what helps most first',asy
  const looks=buys.map(b=>`${b.spec.category}|${b.spec.color_name}|${b.spec.texture}`);
  assert.equal(new Set(looks).size,looks.length,'one garment per colour and fabric');
  assert.ok(buys[0].examples[0].after>buys[0].examples[0].before);
+});
+
+const STYLES=['Everyday','Minimal','Smart casual','Streetwear','Evening'];
+test('exploration picks are varied, stable for the day and lean away from what the user wears',()=>{
+ const wardrobe=[hoodie,joggers,p('x','tops','#191919','cotton','Streetwear','tee')];
+ const picks=localExplore(wardrobe,'both',new Set(),'Mon Oct 19 2026',STYLES);
+ assert.equal(picks.length,4);
+ for(const trait of ['style','category','color_name'])assert.equal(new Set(picks.map(x=>x.spec[trait])).size,4);
+ assert.ok(picks.every(x=>x.explore&&x.examples.length===0&&x.key===`${x.spec.category}|${x.spec.garment}|${x.spec.color_name}`));
+ assert.ok(picks.filter(x=>x.spec.style!=='Streetwear').length>=3);
+ assert.deepEqual(localExplore(wardrobe,'both',new Set(),'Mon Oct 19 2026',STYLES).map(x=>x.key),picks.map(x=>x.key));
+ const again=localExplore(wardrobe,'both',new Set(picks.map(x=>x.key)),'Mon Oct 19 2026',STYLES);
+ assert.ok(again.every(x=>!picks.some(y=>y.key===x.key)));
+});
+
+test('the deck mixes an exploration card in after every three improvements',()=>{
+ const b=(k)=>({key:k});
+ assert.deepEqual(interleave([b(1),b(2),b(3),b(4),b(5),b(6),b(7)],[b('a'),b('b'),b('c')],3).map(x=>x.key),[1,2,3,'a',4,5,6,'b',7,'c']);
+ assert.deepEqual(interleave([],[b('a'),b('b')],3).map(x=>x.key),['a','b']);
+});
+
+test('whole outfits: one improved with a swap, and taken further with a second new piece',()=>{
+ const looks=localLooks([{items:[hoodie,joggers,heels],style:'Streetwear',source:'saved',name:'Friday'}],[hoodie,joggers,heels]);
+ const improved=looks.find(l=>l.kind==='improved');
+ assert.ok(improved&&improved.pieces.length===1&&improved.gain===improved.after-improved.before&&improved.gain>=2);
+ assert.deepEqual(new Set(improved.cloth_ids),new Set(['h','j','s'].filter(id=>id!==improved.pieces[0].replaces)));
+ assert.equal(improved.name,'Friday');
+ const further=looks.find(l=>l.kind==='new');
+ assert.ok(further&&further.pieces.length===2&&further.pieces.every(p=>p.replaces!=='suggested-1'));
+ assert.equal(further.key,lookKey(further.cloth_ids,further.pieces));
 });

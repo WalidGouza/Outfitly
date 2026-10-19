@@ -166,7 +166,7 @@ def test_deleting_an_account_respects_foreign_keys_on_a_real_database(monkeypatc
     # relationships to go by, deleted the user before its wardrobes and the foreign key refused it.
     from sqlalchemy import create_engine, event, func, select
     from sqlalchemy.orm import Session as DbSession
-    from app.models import Base, Suggestion, SuggestionEvent, User
+    from app.models import Base, SavedLook, Suggestion, SuggestionEvent, User
 
     from sqlalchemy.pool import StaticPool
 
@@ -185,6 +185,7 @@ def test_deleting_an_account_respects_foreign_keys_on_a_real_database(monkeypatc
             Outfit(id="o1", wardrobe_id="w1", name="Mon", style="Everyday", cloth_ids=["c1"]),
             Suggestion(wardrobe_id="w1", fingerprint="f", rank=0, key="k", value=1, data={}),
             SuggestionEvent(user_id="u1", action="saved", key="k", spec={}, context={}),
+            SavedLook(user_id="u1", wardrobe_id="w1", key="look", data={}),
         ])
         s.commit()
 
@@ -197,7 +198,7 @@ def test_deleting_an_account_respects_foreign_keys_on_a_real_database(monkeypatc
         r = TestClient(main.app).request("DELETE", "/me", json={"password": "correct horse battery"})
         assert r.status_code == 200, r.text
         assert store.removed == ["a.jpg"]
-        for model in (User, Wardrobe, Cloth, Outfit, Suggestion, SuggestionEvent):
+        for model in (User, Wardrobe, Cloth, Outfit, Suggestion, SuggestionEvent, SavedLook):
             assert session.scalar(select(func.count()).select_from(model)) == 0, model.__name__
     finally:
         main.app.dependency_overrides.clear()

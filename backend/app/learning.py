@@ -5,6 +5,8 @@ Each reaction is a signal on all of those traits at once:
 
     added (uploaded a piece we suggested)  +2     saved +1     I own this +1     opened its outfits +0.3
     taken off the saved list              -0.5    Not for me -1
+    a suggested outfit: saved +0.8, I own it +0.8, taken off Saved -0.3, Not for me -0.5, on each
+    new piece in it (a "no" to an outfit may be about the combination, not the piece)
     shown 5 times without any reaction    -0.25 (repeats: 10 times is -0.5...)
 
 Per trait value the signals are summed and smoothed into a weight between -1 and 1:
@@ -19,7 +21,8 @@ wardrobe. Exact pieces the user dismissed or owns are excluded from suggestions 
 from datetime import datetime, timezone
 from .garments import TYPES
 
-SIGNALS = {"added": 2.0, "bought": 2.5, "saved": 1.0, "owned": 1.0, "clicked": 0.3, "unsaved": -0.5, "dismissed": -1.0}
+SIGNALS = {"added": 2.0, "bought": 2.5, "saved": 1.0, "owned": 1.0, "clicked": 0.3, "unsaved": -0.5, "dismissed": -1.0,
+           "look_saved": 0.8, "look_owned": 0.8, "look_unsaved": -0.3, "look_dismissed": -0.5}
 IGNORED_EVERY = 5  # shown this many times with no reaction at all counts as one "ignored"
 IGNORED = -0.25
 HALF_LIFE_DAYS = 90

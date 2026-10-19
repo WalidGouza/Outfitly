@@ -353,7 +353,9 @@ export function useWardrobeStore(token: string, onExpired: () => void) {
       const body = new FormData();
       for (const [k, v] of Object.entries(fields)) body.append(k, v ?? "");
       body.append("image", file);
-      const piece = await call<Piece>(`/wardrobes/${target}/clothes`, "POST", body);
+      const piece = await call<Piece & { completed?: { id: string; name: string; style: string }[] }>(`/wardrobes/${target}/clothes`, "POST", body);
+      // It completed saved suggested outfits: they're saved outfits now.
+      if (piece.completed?.length && target === wid) call<Look[]>(`/wardrobes/${wid}/outfits`).then(setSaved).catch(() => {});
       if (target === wid) setPieces((list) => [...list, piece]);
       else
         setOthers((all) => {

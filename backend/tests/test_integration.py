@@ -225,6 +225,20 @@ def test_persona_suggestions_and_feedback_events(client):
     assert client.get("/me/persona", headers=alice).json()["feedback"]["dismissed"] == 0
     assert listed.json()["considered"] >= 1 and listed.json()["complete"] is True
 
+    # Exploration cards: pieces to learn taste from, none of them already suggested; once the user
+    # has reacted to one, it isn't asked about again.
+    assert all(look["pieces"] and look["after"] > look["before"] for look in listed.json()["looks"])
+    explored = listed.json()["explore"]
+    assert explored and all(x["explore"] for x in explored)
+    assert not {x["key"] for x in explored} & {x["key"] for x in listed.json()["suggestions"]}
+    probe = explored[0]
+    saved = {"action": "saved", "key": probe["key"], "spec": probe["spec"], "source": "next-buys", "wardrobe_id": wid, "explore": True}
+    assert client.post("/me/suggestion-events", headers=alice, json={"events": [saved]}).status_code == 200
+    after = client.get(f"/wardrobes/{wid}/suggestions", headers=alice).json()
+    assert probe["key"] not in [x["key"] for x in after["explore"]]
+    assert client.get("/me/persona", headers=alice).json()["feedback"]["saved"] == 1
+    assert client.delete("/me/suggestion-events", headers=alice).json()["removed"] == 1
+
     # Saved list: saving adds it, unsaving or "I own this" takes it off; owned pieces aren't suggested.
     def send(action):
         r = client.post("/me/suggestion-events", headers=alice, json={"events": [{**event, "action": action}]})

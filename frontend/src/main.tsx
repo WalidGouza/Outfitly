@@ -31,14 +31,19 @@ import {
 import { NextBuys, useNextBuys } from "./nextbuys";
 import { StylePicker } from "./onboarding";
 
-// ── Routing: #/, #/today, #/wardrobes, #/wardrobe, #/studio, #/lab, #/saved, #/next, #/account, #/piece/<id> ──────
+// ── Routing: #/, #/today, #/wardrobes, #/wardrobe, #/studio, #/lab, #/saved, #/saved/clothes, #/saved/suggested, #/next, #/account, #/piece/<id> ──────
 function parse(hash: string): Route {
   const [, name, id] = hash.replace(/^#/, "").split("/");
   if (name === "piece" && id) return { name: "piece", id: decodeURIComponent(id) };
+  if (name === "saved") return id === "clothes" || id === "suggested" ? { name: "saved", tab: id } : { name: "saved" };
   if (["today", "wardrobes", "wardrobe", "studio", "saved", "next", "lab", "account"].includes(name)) return { name } as Route;
   return { name: "home" };
 }
-const href = (r: Route) => (r.name === "piece" ? `#/piece/${encodeURIComponent(r.id)}` : r.name === "home" ? "#/" : `#/${r.name}`);
+const href = (r: Route) =>
+  r.name === "piece" ? `#/piece/${encodeURIComponent(r.id)}`
+  : r.name === "home" ? "#/"
+  : r.name === "saved" && r.tab && r.tab !== "outfits" ? `#/saved/${r.tab}`
+  : `#/${r.name}`;
 
 const nav: { route: Route["name"]; label: string; short: string; icon: IconName; tab: boolean }[] = [
   { route: "home", label: "Home", short: "Home", icon: "home", tab: true },
@@ -46,8 +51,8 @@ const nav: { route: Route["name"]; label: string; short: string; icon: IconName;
   { route: "wardrobes", label: "Wardrobes", short: "Wardrobe", icon: "wardrobe", tab: true },
   { route: "studio", label: "Outfit studio", short: "Studio", icon: "studio", tab: true },
   { route: "lab", label: "Outfit lab", short: "Lab", icon: "lab", tab: false },
-  { route: "saved", label: "Saved", short: "Saved", icon: "saved", tab: true },
   { route: "next", label: "Next buys", short: "Buys", icon: "bag", tab: false },
+  { route: "saved", label: "Saved", short: "Saved", icon: "saved", tab: true }, //always pinned down
 ];
 const tabs = nav.filter((n) => n.tab);
 const SEEN_KEY = "outfitly-ootd-seen";
@@ -398,7 +403,7 @@ function App() {
     route.name === "today" ? <Today app={app} />
     : route.name === "wardrobe" ? <Wardrobe app={app} />
     : route.name === "studio" ? <Studio app={app} />
-    : route.name === "saved" ? <Saved app={app} />
+    : route.name === "saved" ? <Saved app={app} tab={route.tab ?? "outfits"} />
     : route.name === "next" ? <NextBuys app={app} />
     : route.name === "lab" ? <Lab app={app} lab={lab} setLab={setLab} />
     : route.name === "wardrobes" ? <Wardrobes app={app} />
@@ -445,7 +450,9 @@ function App() {
               {current === n.route && <Collar />}
               <Icon name={n.icon} />
               {n.label}
-              {n.route === "saved" && store.saved.length > 0 && <span className="nav__count">{store.saved.length}</span>}
+              {n.route === "saved" && store.saved.length + nextBuys.wishlist.length + nextBuys.savedLooks.length > 0 && (
+                <span className="nav__count">{store.saved.length + nextBuys.wishlist.length + nextBuys.savedLooks.length}</span>
+              )}
             </a>
           ))}
         </nav>

@@ -10,7 +10,7 @@ export type Persona = {
   garments: { name: string; count: number }[];
   summary: string;
   based_on: { pieces: number; outfits: number };
-  feedback: { saved: number; dismissed: number; owned: number };
+  feedback: { saved: number; dismissed: number; owned: number; outfits_saved?: number; outfits_dismissed?: number };
   /** What reactions to suggestions taught: traits worth more, or less, when ranking suggestions. */
   learned?: { likes: Learned[]; dislikes: Learned[]; signals: number };
   /** Read from the style tags alone, while photo analysis is unavailable. */
@@ -457,6 +457,8 @@ function StyleProfile({ store, toast }: Pick<Props, "store" | "toast">) {
     }
   }
 
+  // Outfits are counted once each (their events are one per new piece).
+  const outfitReactions = (persona?.feedback.outfits_saved ?? 0) + (persona?.feedback.outfits_dismissed ?? 0);
   const reactions = persona ? Math.max(persona.learned?.signals ?? 0, persona.feedback.saved + persona.feedback.dismissed + persona.feedback.owned) : 0;
   return (
     <section className="account__section" aria-labelledby="persona-l">
@@ -556,7 +558,7 @@ function StyleProfile({ store, toast }: Pick<Props, "store" | "toast">) {
             <div className="row account__row">
               <span className="account__value">
                 {reactions
-                  ? `Learned from ${plural(reactions, "reaction")}${persona.feedback.dismissed ? `, ${plural(persona.feedback.dismissed, "suggestion")} hidden` : ""}`
+                  ? `Learned from ${plural(reactions, "reaction")}${outfitReactions ? `, ${outfitReactions} on outfits` : ""}${persona.feedback.dismissed ? `, ${plural(persona.feedback.dismissed, "suggestion")} hidden` : ""}`
                   : "No feedback on suggestions yet"}
               </span>
               <button className="btn btn--plain btn--sm account__edit" onClick={reset} disabled={busy || !reactions}>

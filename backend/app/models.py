@@ -125,7 +125,9 @@ class Suggestion(Base):
 class SuggestionEvent(Base):
     """What a user did with a suggestion: the history the persona will learn from.
 
-    action: shown | saved | dismissed | owned | clicked | bought. `spec` is the suggested piece,
+    action: shown | saved | unsaved | dismissed | owned | clicked | bought | added, or
+    look_saved | look_unsaved | look_dismissed | look_owned for a suggested outfit (one event per
+    new piece in it, with the outfit's key in `context["look"]`). `spec` is the suggested piece,
     `context` where it was shown (source, outfit, gain, position).
     """
 
@@ -137,4 +139,21 @@ class SuggestionEvent(Base):
     key: Mapped[str] = mapped_column(String)
     spec: Mapped[dict] = mapped_column(JSON)
     context: Mapped[dict] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+
+class SavedLook(Base):
+    """A suggested outfit the user saved: pieces they own plus 1-2 they don't yet.
+
+    `data` is the look as suggested (improve.looks): its kept cloth_ids, the new pieces with their
+    specs, style and score before/after. Once every new piece is in the wardrobe it becomes a real
+    saved outfit and this row goes.
+    """
+
+    __tablename__ = "saved_looks"
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=uid)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    wardrobe_id: Mapped[str] = mapped_column(ForeignKey("wardrobes.id"), index=True)
+    key: Mapped[str] = mapped_column(String)
+    data: Mapped[dict] = mapped_column(JSON)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
