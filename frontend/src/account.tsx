@@ -459,7 +459,7 @@ function StyleProfile({ store, toast }: Pick<Props, "store" | "toast">) {
 
   // Outfits are counted once each (their events are one per new piece).
   const outfitReactions = (persona?.feedback.outfits_saved ?? 0) + (persona?.feedback.outfits_dismissed ?? 0);
-  const reactions = persona ? Math.max(persona.learned?.signals ?? 0, persona.feedback.saved + persona.feedback.dismissed + persona.feedback.owned) : 0;
+  const reactions = persona ? Math.max(persona.learned?.signals ?? 0, persona.feedback.saved + persona.feedback.dismissed + persona.feedback.owned + outfitReactions) : 0;
   return (
     <section className="account__section" aria-labelledby="persona-l">
       <h2 className="account__label" id="persona-l">

@@ -154,3 +154,40 @@ def test_outfit_reactions_need_their_outfit_and_count_once_on_the_profile(db):
     finally:
         main.optional_style_vectors = monkey_vectors
     assert feedback["outfits_saved"] == 1 and feedback["saved"] == 0
+
+
+def test_an_outfit_reaction_counts_once_however_many_new_pieces_it_has():
+    at = main.datetime.now(main.timezone.utc)
+    a = {"category": "shoes", "garment": "sneakers", "color_name": "White", "texture": "leather", "style": "Streetwear"}
+    b = {"category": "jackets", "garment": "bomber", "color_name": "Black", "texture": "other", "style": "Streetwear"}
+    learned = learning.learn([
+        ("look_saved", "shoes|sneakers|White", a, at, "look|1"),
+        ("look_saved", "jackets|bomber|Black", b, at, "look|1"),
+        ("saved", "shoes|sneakers|White", a, at),
+    ])
+    assert learned["signals"] == 2
+    # Both pieces still learn from it.
+    assert learned["weights"]["garment"]["sneakers"] > 0 and learned["weights"]["garment"]["bomber"] > 0
+
+
+def test_removing_a_piece_takes_the_suggested_outfits_built_on_it(db, monkeypatch):
+    client, session = db
+    monkeypatch.setattr(main, "image_storage", SimpleNamespace(delete=lambda name: None))
+    look = next(l for l in suggested() if l["kind"] == "improved")
+    client.post("/me/looks", json=payload(look))
+    kept = look["cloth_ids"][0]
+    r = client.delete(f"/wardrobes/w1/clothes/{kept}")
+    assert r.status_code == 200, r.text
+    assert r.json()["removed_looks"] == 1
+    assert session.scalar(select(func.count()).select_from(SavedLook)) == 0
+
+
+def test_listing_cleans_up_outfits_whose_pieces_are_gone(db):
+    client, session = db
+    look = next(l for l in suggested() if l["kind"] == "improved")
+    client.post("/me/looks", json=payload(look))
+    # Removed some other way (before removal took outfits with it).
+    session.delete(session.get(Cloth, look["cloth_ids"][0]))
+    session.commit()
+    assert client.get("/me/looks").json() == []
+    assert session.scalar(select(func.count()).select_from(SavedLook)) == 0

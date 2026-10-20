@@ -631,6 +631,19 @@ html[data-theme="dark"]:has(.app) { background: #0B0D0A; }
 .look .buy__actions .btn--plain { box-shadow: none; }
 @media (min-width: 761px) { .look__pieces:not(.look__pieces--lg) { max-width: 420px; } }
 
+/* "Which do you already have?" for an outfit's new pieces */
+.owned { display: flex; flex-direction: column; gap: 14px; }
+.owned__list { display: flex; flex-direction: column; gap: 8px; }
+.ow .owned__piece { display: flex; align-items: center; gap: 12px; width: 100%; padding: 8px 12px 8px 8px; border: 0; border-radius: var(--r-md); background: var(--fill); color: var(--label); font: inherit; text-align: left; cursor: pointer; box-shadow: inset 0 0 0 1.5px transparent; transition: background-color 150ms ease, box-shadow 150ms ease, transform 140ms var(--ease-out); }
+.ow .owned__piece:active { transform: scale(0.985); }
+.ow .owned__piece.is-on { background: color-mix(in srgb, var(--primary) 10%, var(--surface)); box-shadow: inset 0 0 0 1.5px var(--primary); }
+.owned__art { flex: none; display: grid; place-items: center; width: 52px; height: 52px; border-radius: var(--r-sm); background: var(--surface); }
+.owned__art svg { width: 78%; height: 78%; }
+.owned__name { flex: 1; min-width: 0; font-weight: 600; }
+.owned__check { display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; background: var(--fill-strong); color: transparent; transition: background-color 150ms ease, color 150ms ease; }
+.owned__check .ic { width: 15px; height: 15px; }
+.owned__piece.is-on .owned__check { background: var(--primary); color: var(--on-primary); }
+
 /* Next buys: the swipe deck */
 .deck-wrap { display: flex; flex-direction: column; align-items: center; gap: 18px; overflow-x: clip; padding: 4px 0 2px; }
 /* Sized so the buttons under it stay in view (above the floating tab bar on phones). */

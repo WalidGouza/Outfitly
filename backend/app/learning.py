@@ -63,7 +63,9 @@ def spec_from_key(key):
 def learn(events, shown=None, now=None):
     """Learned weights from reactions.
 
-    events: (action, key, spec, created_at) for every reaction except "shown".
+    events: (action, key, spec, created_at[, look]) for every reaction except "shown". `look` is the
+    suggested outfit an event belongs to: its events (one per new piece) teach through every
+    piece but count as one reaction.
     shown: {key: times shown}, for pieces the user never reacted to.
     """
     now = now or datetime.now(timezone.utc)
@@ -76,12 +78,18 @@ def learn(events, shown=None, now=None):
             signed, size, n = sums.setdefault(trait, {}).get(v, (0.0, 0.0, 0))
             sums[trait][v] = (signed + value, size + abs(value), n + (1 if reaction else 0))
 
-    for action, key, spec, at in events:
+    looks = set()
+    for action, key, spec, at, *rest in events:
         signal = SIGNALS.get(action)
         if signal is None:
             continue
         reacted.add(key)
-        signals += 1
+        look = rest[0] if rest else None
+        if look is None:
+            signals += 1
+        elif (action, look) not in looks:
+            looks.add((action, look))
+            signals += 1
         add(spec or spec_from_key(key), signal * recency(at, now))
     for key, n in (shown or {}).items():
         times = n // IGNORED_EVERY

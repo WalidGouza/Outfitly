@@ -23,7 +23,7 @@ import {
   type SuggestionAction,
   type WishItem,
 } from "./suggest";
-import { Icon, PieceArt, Seg, ordered } from "./ui";
+import { Dialog, DialogHead, Icon, PieceArt, Seg, ordered } from "./ui";
 
 const DEMO_WISHLIST = "outfitly-demo-wishlist";
 const DEMO_LOOKS = "outfitly-demo-looks";
@@ -173,11 +173,13 @@ export function useWishActions(app: App) {
     keepLooks(savedLooks.filter((l) => l.key !== look.key));
     if (!demo) await call(`/me/looks/${look.id}`, "DELETE");
   };
-  /** Up on an outfit card: the user already has its new piece(s); adding starts with the first. */
-  const ownLook = (look: SuggestedLook) => {
+  /** Up on an outfit card: the user already has these of its new pieces. All of them: they have
+   *  the whole outfit. Each one is then added in turn. */
+  const ownLook = (look: SuggestedLook, pieces: LookPiece[] = look.pieces) => {
     setHidden((h) => [...h, look.key]);
-    reportLook("look_owned", look);
-    addOwned(look.pieces[0]);
+    if (pieces.length === look.pieces.length) reportLook("look_owned", look);
+    else for (const p of pieces) report("owned", p);
+    app.addSuggested(pieces.map((p) => ({ name: p.title, category: p.spec.category, garment: p.spec.garment, texture: p.spec.texture, style: p.spec.style, color: p.spec.color })));
   };
   /** One new piece of a saved outfit is in fact owned: add it (to the outfit's wardrobe), and the
    *  outfit completes itself once all its pieces are in. */
@@ -199,6 +201,8 @@ export function NextBuys({ app }: { app: App }) {
   const { report, reportLook, save, unsave, own, saveLook, unsaveLook, ownLook } = useWishActions(app);
   const [filter, setFilter] = useState<Filter>("all");
   const [back, setBack] = useState<{ key: string; dir: Swipe } | null>(null);
+  // An outfit with two new pieces swiped up: which does the user have?
+  const [asking, setAsking] = useState<SuggestedLook | null>(null);
   // The deck holds the ideas still to decide on (not hidden or already saved): pieces, a few to
   // learn the user's taste from, and whole outfits made from pieces still in the wardrobe.
   const all = useMemo(() => {
@@ -260,7 +264,11 @@ export function NextBuys({ app }: { app: App }) {
     if (dir === "left") return dismiss(card, dir);
     if (card.look) {
       const look = card.look;
-      if (dir === "up") return ownLook(look);
+      if (dir === "up") {
+        if (look.pieces.length === 1) return ownLook(look);
+        setHidden((h) => [...h, look.key]);
+        return setAsking(look);
+      }
       saveLook(look).catch((e) => app.toast({ kind: "Not saved", text: (e as Error).message, tone: "plain" }));
       app.toast({
         kind: "Saved",
@@ -388,6 +396,22 @@ export function NextBuys({ app }: { app: App }) {
         )
       )}
 
+      <WhichOwned
+        look={asking}
+        onCancel={() => {
+          // Nothing chosen: the outfit goes back on the deck.
+          if (asking) {
+            setBack({ key: asking.key, dir: "up" });
+            setHidden((h) => h.filter((k) => k !== asking.key));
+          }
+          setAsking(null);
+        }}
+        onConfirm={(pieces) => {
+          if (asking) ownLook(asking, pieces);
+          setAsking(null);
+        }}
+      />
+
       <button className="card next__saved" onClick={() => app.go({ name: "saved", tab: savedLooks.length && !wishlist.length ? "suggested" : "clothes" })}>
         <span className="next__saved-icon" aria-hidden="true">
           <Icon name="saved" filled={wishlist.length + savedLooks.length > 0} />
@@ -403,6 +427,48 @@ export function NextBuys({ app }: { app: App }) {
         <Icon name="chevron" />
       </button>
     </div>
+  );
+}
+
+/** "Which of these do you already have?", for an outfit card with two new pieces swiped up. */
+function WhichOwned({ look, onCancel, onConfirm }: { look: SuggestedLook | null; onCancel: () => void; onConfirm: (pieces: LookPiece[]) => void }) {
+  const [picked, setPicked] = useState<string[]>([]);
+  useEffect(() => setPicked(look ? look.pieces.map((p) => p.key) : []), [look]);
+  const toggle = (key: string) => setPicked((list) => (list.includes(key) ? list.filter((k) => k !== key) : [...list, key]));
+  const chosen = look?.pieces.filter((p) => picked.includes(p.key)) ?? [];
+  return (
+    <Dialog open={!!look} onClose={onCancel} labelledBy="owned-t" describedBy="owned-d" width={420}>
+      <DialogHead id="owned-t" title="Which do you already have?" onClose={onCancel} />
+      <div className="dialog__body owned">
+        <p id="owned-d" className="muted">
+          You’ll add each one to your wardrobe with a photo. Outfitly won’t suggest them again.
+        </p>
+        <div className="owned__list" role="group" aria-label="New pieces in this outfit">
+          {look?.pieces.map((p) => {
+            const on = picked.includes(p.key);
+            return (
+              <button key={p.key} type="button" className={`owned__piece${on ? " is-on" : ""}`} aria-pressed={on} onClick={() => toggle(p.key)}>
+                <span className="owned__art" aria-hidden="true">
+                  <PieceArt piece={asPiece(p)} />
+                </span>
+                <span className="owned__name">{p.title}</span>
+                <span className="owned__check" aria-hidden="true">
+                  <Icon name="check" />
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+      <div className="dialog__foot">
+        <button className="btn" onClick={onCancel}>
+          Cancel
+        </button>
+        <button className="btn btn--primary" onClick={() => onConfirm(chosen)} disabled={!chosen.length}>
+          {chosen.length === 2 ? "Add both" : chosen.length ? "Add it" : "Choose one"}
+        </button>
+      </div>
+    </Dialog>
   );
 }
 

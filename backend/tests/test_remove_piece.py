@@ -2,7 +2,7 @@ from types import SimpleNamespace
 import pytest
 from fastapi.testclient import TestClient
 from app import main
-from app.models import Cloth, Outfit, Wardrobe
+from app.models import Cloth, Outfit, SavedLook, Wardrobe
 from app.storage import StorageUnavailable
 
 
@@ -20,7 +20,10 @@ class Session:
             return self.pieces.get(ident)
 
     def scalars(self, query):
-        # Answers by table, like a real session: pieces by id, otherwise the outfits.
+        # Answers by table, like a real session: pieces by id, no saved suggested outfits,
+        # otherwise the outfits.
+        if query.column_descriptions[0]["entity"] is SavedLook:
+            return iter([])
         if query.column_descriptions[0]["entity"] is Cloth:
             ids = next((v for v in query.compile().params.values() if isinstance(v, (list, tuple, set))), [])
             return iter([self.pieces[i] for i in ids if i in self.pieces])
@@ -61,7 +64,7 @@ def setup(monkeypatch):
 def test_removes_piece_its_outfits_and_photo(setup):
     client, session, store, piece, with_piece = setup
     r = client.delete("/wardrobes/mine/clothes/p1")
-    assert r.status_code == 200 and r.json() == {"ok": True, "removed_outfits": 1}
+    assert r.status_code == 200 and r.json() == {"ok": True, "removed_outfits": 1, "removed_looks": 0}
     assert session.deleted == [with_piece, piece] and session.committed
     assert store.deleted == ["photo.jpg"]
 

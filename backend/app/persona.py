@@ -21,7 +21,7 @@ from . import learning, meaning
 from .attributes import COLOR_NAMES, color_name
 from .matching import color_score
 
-VERSION = 5
+VERSION = 6
 SAVED_OUTFIT_WEIGHT = 1.5  # a saved outfit says more about taste than one piece
 CHOSEN_WEIGHT = 3  # pieces' worth, shared between the styles picked at sign-in
 STYLE_WEIGHT, COLOUR_WEIGHT, FABRIC_WEIGHT = 0.55, 0.3, 0.15

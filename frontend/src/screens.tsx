@@ -76,7 +76,8 @@ export type App = {
   /** Which clothes to offer (profile setting); "both" for the sample wardrobe. */
   wear: Wear;
   /** Opens Add piece filled in from a suggestion the user says they own ("I own this"). */
-  addSuggested: (prefill: AddPrefill) => void;
+  /** Opens Add a piece with what a suggestion knows filled in; several open one after another. */
+  addSuggested: (prefill: AddPrefill | AddPrefill[]) => void;
   /** Opens the new-wardrobe dialog (sign-in first for the sample wardrobe). */
   newWardrobe: () => void;
   /** Opens an outfit's details: its description and pieces that would raise its score. */
@@ -897,10 +898,12 @@ export function RemoveDialog({ app, piece, onClose }: { app: App; piece: Piece |
   // Frozen when the dialog opens, so the text doesn't change while it fades out.
   const [shown, setShown] = useState(piece);
   const [n, setN] = useState(0);
+  const [looks, setLooks] = useState(0);
   useEffect(() => {
     if (piece) {
       setShown(piece);
       setN(app.store.saved.filter((l) => l.items.some((i) => i.id === piece.id)).length);
+      setLooks(app.nextBuys.savedLooks.filter((l) => l.cloth_ids.includes(piece.id)).length);
       setError("");
     }
   }, [piece]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -910,8 +913,10 @@ export function RemoveDialog({ app, piece, onClose }: { app: App; piece: Piece |
     setError("");
     try {
       const removed = await app.store.removePiece(shown);
+      app.nextBuys.setSavedLooks((list) => list.filter((l) => !l.cloth_ids.includes(shown.id)));
       onClose();
-      app.toast({ kind: "Removed", text: removed ? `${shown.name} and ${plural(removed, "saved outfit")}` : shown.name });
+      const also = [removed.outfits && plural(removed.outfits, "saved outfit"), removed.looks && plural(removed.looks, "suggested outfit")].filter(Boolean);
+      app.toast({ kind: "Removed", text: also.length ? `${shown.name} and ${also.join(" and ")}` : shown.name });
       app.go({ name: "wardrobe" });
     } catch (e) {
       setError((e as Error).message);
@@ -929,8 +934,8 @@ export function RemoveDialog({ app, piece, onClose }: { app: App; piece: Piece |
           Remove {shown?.name.toLowerCase()}?
         </h2>
         <p className="muted" id="rm-d" style={{ fontSize: 14.5 }}>
-          {n
-            ? `${plural(n, "saved outfit")} ${n === 1 ? "uses" : "use"} this piece. ${n === 1 ? "It" : "They"} will be removed with it. This can’t be undone.`
+          {n + looks
+            ? `${[n && plural(n, "saved outfit"), looks && plural(looks, "suggested outfit")].filter(Boolean).join(" and ")} ${n + looks === 1 ? "uses" : "use"} this piece. ${n + looks === 1 ? "It" : "They"} will be removed with it. This can’t be undone.`
             : "Its photo will be deleted. This can’t be undone."}
         </p>
         <ErrorNote text={error} />
@@ -940,7 +945,7 @@ export function RemoveDialog({ app, piece, onClose }: { app: App; piece: Piece |
           Keep piece
         </button>
         <button className={`btn btn--danger-solid${busy ? " btn--busy" : ""}`} onClick={remove} disabled={busy} aria-busy={busy}>
-          {busy ? "Removing…" : n ? `Remove all ${n + 1}` : "Remove piece"}
+          {busy ? "Removing…" : n + looks ? `Remove all ${n + looks + 1}` : "Remove piece"}
         </button>
       </div>
     </Dialog>
@@ -1230,7 +1235,20 @@ const WEAR_OPTIONS: { value: Wear; label: string }[] = [
   { value: "both", label: "Both" },
 ];
 
-export function AddPiece({ app, open, onClose, prefill }: { app: App; open: boolean; onClose: () => void; prefill?: AddPrefill | null }) {
+export function AddPiece({
+  app,
+  open,
+  onClose,
+  prefill,
+  onAdded,
+}: {
+  app: App;
+  open: boolean;
+  onClose: () => void;
+  prefill?: AddPrefill | null;
+  /** After a piece is added: true when another one is opened to add next (the dialog stays). */
+  onAdded?: () => boolean;
+}) {
   const { store } = app;
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState("");
@@ -1307,7 +1325,6 @@ export function AddPiece({ app, open, onClose, prefill }: { app: App; open: bool
     setError("");
     try {
       const added = await store.addPiece(file, { ...draft, name: draft.name.trim() }, target);
-      onClose();
       const w = store.wardrobes.find((x) => x.id === target);
       const done = added.completed ?? [];
       if (done.length) {
@@ -1320,6 +1337,7 @@ export function AddPiece({ app, open, onClose, prefill }: { app: App; open: bool
       } else {
         app.toast({ kind: "Added", text: `${draft.name.trim()} is in ${w?.name ?? "your wardrobe"}` });
       }
+      if (!onAdded?.()) onClose();
     } catch (e) {
       setError((e as Error).message);
     } finally {

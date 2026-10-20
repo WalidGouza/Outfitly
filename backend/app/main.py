@@ -693,6 +693,13 @@ def remove_piece(wid: str, cid: str, u=Depends(user), session=Depends(db)):
     ]
     for o in outfits:
         session.delete(o)
+    looks = [
+        look
+        for look in session.scalars(select(SavedLook).where(SavedLook.user_id == u.id, SavedLook.wardrobe_id == wid))
+        if cid in look.data.get("cloth_ids", [])
+    ]
+    for look in looks:
+        session.delete(look)
     filename = c.image
     session.delete(c)
     session.commit()
@@ -701,7 +708,7 @@ def remove_piece(wid: str, cid: str, u=Depends(user), session=Depends(db)):
     except Exception:
         # The piece is already gone; an orphaned private photo is harmless.
         logger.error("Image cleanup failed after removing a piece")
-    return {"ok": True, "removed_outfits": len(outfits)}
+    return {"ok": True, "removed_outfits": len(outfits), "removed_looks": len(looks)}
 
 
 @app.get("/images/{filename}")
@@ -1032,18 +1039,23 @@ def piece_row(c):
 
 
 def reactions(uid, session):
-    """Every reaction to a suggestion (all but "shown"), and how often each piece was shown."""
-    events = session.execute(
-        select(SuggestionEvent.action, SuggestionEvent.key, SuggestionEvent.spec, SuggestionEvent.created_at)
+    """Every reaction to a suggestion (all but "shown"), with the suggested outfit it's about if
+    any, and how often each piece was shown."""
+    rows = session.execute(
+        select(SuggestionEvent.action, SuggestionEvent.key, SuggestionEvent.spec, SuggestionEvent.created_at, SuggestionEvent.context)
         .where(SuggestionEvent.user_id == uid, SuggestionEvent.action != "shown")
         .order_by(SuggestionEvent.created_at)
     ).all()
+    events = [
+        (action, key, spec, at, context.get("look") if isinstance(context, dict) else None)
+        for action, key, spec, at, context in rows
+    ]
     shown = session.execute(
         select(SuggestionEvent.key, func.count())
         .where(SuggestionEvent.user_id == uid, SuggestionEvent.action == "shown")
         .group_by(SuggestionEvent.key)
     ).all()
-    return [tuple(e) for e in events], {key: n for key, n in shown}
+    return events, {key: n for key, n in shown}
 
 
 def look_reactions(uid, session):
@@ -1376,11 +1388,17 @@ def saved_looks(u=Depends(user), session=Depends(db)):
     rows = list(session.scalars(select(SavedLook).where(SavedLook.user_id == u.id).order_by(SavedLook.created_at.desc())))
     ids = {cid for r in rows for cid in r.data["cloth_ids"]}
     by_id = {c.id: c for c in session.scalars(select(Cloth).where(Cloth.id.in_(ids)))} if ids else {}
-    out = []
+    out, gone = [], []
     for r in rows:
-        # A piece it was built on has been removed since: the outfit no longer exists.
         if r.wardrobe_id in wardrobes and all(cid in by_id for cid in r.data["cloth_ids"]):
             out.append(saved_look_json(r, wardrobes[r.wardrobe_id], by_id))
+        else:
+            # A piece it was built on was removed before removal took its outfits with it.
+            gone.append(r)
+    if gone:
+        for r in gone:
+            session.delete(r)
+        session.commit()
     return out
 
 

@@ -370,13 +370,14 @@ export function useWardrobeStore(token: string, onExpired: () => void) {
     [call, wid],
   );
 
-  /** Removes a piece and every saved outfit that uses it. Resolves to the number of outfits removed. */
+  /** Removes a piece, every saved outfit that uses it and the saved suggested outfits built on it.
+   *  Resolves to how many of each went with it. */
   const removePiece = useCallback(
     async (piece: Piece) => {
-      const result = await call<{ removed_outfits: number }>(`/wardrobes/${wid}/clothes/${piece.id}`, "DELETE");
+      const result = await call<{ removed_outfits: number; removed_looks?: number }>(`/wardrobes/${wid}/clothes/${piece.id}`, "DELETE");
       setPieces((list) => list.filter((p) => p.id !== piece.id));
       setSaved((list) => list.filter((l) => !l.items.some((i) => i.id === piece.id)));
-      return result.removed_outfits;
+      return { outfits: result.removed_outfits, looks: result.removed_looks ?? 0 };
     },
     [call, wid],
   );

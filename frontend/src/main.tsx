@@ -270,13 +270,27 @@ function App() {
     else if (!store.wid) setDialog("wardrobe");
     else setDialog("add");
   }, [store.demo, store.wid]);
+  // Pieces still to add after the one open now (an outfit's new pieces the user already has).
+  const [addQueue, setAddQueue] = useState<AddPrefill[]>([]);
   const addSuggested = useCallback(
-    (prefill: AddPrefill) => {
+    (prefill: AddPrefill | AddPrefill[]) => {
+      const [first, ...rest] = Array.isArray(prefill) ? prefill : [prefill];
       openAdd();
-      if (!store.demo && store.wid) setAddPrefill(prefill);
+      if (!store.demo && store.wid && first) {
+        setAddPrefill(first);
+        setAddQueue(rest);
+      }
     },
     [openAdd, store.demo, store.wid],
   );
+  const addNext = () => {
+    const [next, ...rest] = addQueue;
+    if (!next) return false;
+    setAddQueue(rest);
+    setAddPrefill(next);
+    setToastData({ kind: "Next", text: `Now add your ${next.name?.toLowerCase() ?? "other piece"}` });
+    return true;
+  };
 
   // Has the user opened today's outfit yet? Keyed by local date, wardrobe and the outfit itself,
   // so a new day, another wardrobe or a different pick counts as new again.
@@ -525,7 +539,16 @@ function App() {
       <WardrobeSheet open={sheet} onClose={() => setSheet(false)} store={store} pick={pickWardrobe} create={() => { setSheet(false); setDialog(store.demo ? "auth" : "wardrobe"); }} />
 
       <Toast toast={toastData} onClose={closeToast} />
-      <AddPiece app={app} open={dialog === "add"} onClose={close} prefill={addPrefill} />
+      <AddPiece
+        app={app}
+        open={dialog === "add"}
+        onClose={() => {
+          setAddQueue([]);
+          close();
+        }}
+        prefill={addPrefill}
+        onAdded={addNext}
+      />
       <StylePicker
         open={!!picker && !!me}
         first={picker === "first"}
